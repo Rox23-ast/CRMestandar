@@ -4,15 +4,15 @@ Este directorio contiene plantillas y configuraciones listas para usar en tus pr
 
 ---
 
-## 📁 Contenido y Cómo Usarlo
+## Contenido y Cómo Usarlo
 
-### 1. 🤖 Reglas de Agentes de IA (`/AI-Agent-Rules`)
+### 1. Reglas de Agentes de IA (`/AI-Agent-Rules`)
 Optimiza la forma en que los asistentes de IA interactúan con tus proyectos, ahorrando tiempo y evitando respuestas incorrectas.
 
 * **`CLAUDE.md`**: Cópialo en la raíz de tu proyecto. Define cómo debe estructurar las respuestas la IA, la concisión deseada, reglas de idiomas (por ejemplo, código en inglés e interfaz en español) y reglas de aprobación antes de realizar cambios de archivos.
 * **`context-rules-template.md`**: Plantilla de guía para crear un archivo `AGENTS.md` en tu repositorio. Úsala para documentar las tecnologías, comandos, estructura de carpetas y estándares de tu proyecto para que la IA los comprenda perfectamente desde el primer instante.
 
-### 2. 🪝 Automatizaciones de Git (`/Git-Hooks`)
+### 2. Automatizaciones de Git (`/Git-Hooks`)
 Garantiza que ningún commit con errores o advertencias críticas de compilación llegue a tu repositorio de Git.
 
 * **`verify-commit.ps1`**: Script que compila el código y ejecuta las pruebas unitarias. Si algo falla, impide el commit.
@@ -20,17 +20,17 @@ Garantiza que ningún commit con errores o advertencias críticas de compilació
 * **`install-hooks.ps1`**: Instalador del hook pre-commit de Git.
   * *Cómo usar:* Ejecuta este script desde PowerShell en la raíz de tu repositorio Git para activar automáticamente `verify-commit.ps1`.
 
-### 3. 🙈 Reglas de Git Ignore (`/Git-Ignore`)
+### 3. Reglas de Git Ignore (`/Git-Ignore`)
 * **`.gitignore`**: Plantilla unificada y súper completa para proyectos de software (.NET, Node.js, Python), editores modernos (VS Code, Rider, Visual Studio) y archivos temporales de los sistemas operativos (Windows Thumbs.db, macOS .DS_Store).
   * *Cómo usar:* Cópialo en la raíz de tu nuevo repositorio Git y renombralo como `.gitignore`.
 
-### 4. ✍️ Estilo de Código (`/Editor-Config`)
+### 4. Estilo de Código (`/Editor-Config`)
 * **`.editorconfig`**: Archivo de configuración global que estandariza las tabulaciones, espacios, saltos de línea y formateo de código en cualquier editor (VS Code, Rider, Visual Studio, Sublime, etc.).
   * *Cómo usar:* Cópialo en la raíz de tu repositorio. Tu editor preferido leerá este archivo automáticamente y formateará tu código bajo las mismas reglas siempre.
 
 ---
 
-## ⚡ Guía Rápida para un Nuevo Proyecto
+## Guía Rápida para un Nuevo Proyecto
 
 Cuando inicies un nuevo proyecto, simplemente realiza los siguientes pasos:
 
