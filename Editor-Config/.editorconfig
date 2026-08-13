@@ -1,0 +1,52 @@
+# EditorConfig - Global Settings for Code Style Consistency
+# https://editorconfig.org
+
+root = true
+
+# All files
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# XML, JSON, YAML, Markdown, JS, TS, CSS, HTML
+[*.{xml,json,yml,yaml,md,js,ts,tsx,jsx,css,html,scss,jsonc}]
+indent_size = 2
+
+# Makefiles
+[Makefile]
+indent_style = tab
+
+# C# Files (Style & formatting)
+[*.cs]
+indent_size = 4
+indent_style = space
+
+# New line preferences for C#
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+csharp_new_line_between_query_expression_clauses = true
+
+# Indentation preferences
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_indent_labels = no_change
+
+# Formatting rules for C# code
+dotnet_sort_system_directives_first = true
+dotnet_style_qualification_for_field = false:silent
+dotnet_style_qualification_for_property = false:silent
+dotnet_style_qualification_for_method = false:silent
+dotnet_style_qualification_for_event = false:silent
+
+# Language rules
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:suggestion

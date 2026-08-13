@@ -1,0 +1,67 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// CRM Module Models
+// ----------------------------------------------------------------------------
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // Hashed password
+  name      String
+  role      String   @default("AGENT") // Roles: ADMIN, AGENT
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Client {
+  id        String   @id @default(uuid())
+  phone     String   @unique // WhatsApp Phone
+  name      String?
+  botStep   String   @default("START") // Conversation state tracker
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  quotes    Quote[]
+}
+
+// ----------------------------------------------------------------------------
+// Bot Configuration Models
+// ----------------------------------------------------------------------------
+
+model BotConfig {
+  id                  String   @id @default(uuid())
+  greetingMessage     String   @default("¡Hola! Soy el asistente virtual de Mudanzas Chico. ¿En qué te puedo ayudar hoy?")
+  awayMessage         String   @default("En este momento estamos fuera de horario de atención. Déjanos tu mensaje y te contactaremos pronto.")
+  aiPersonalityPrompt String   @default("Eres un asistente formal y empático de una empresa de mudanzas llamada Mudanzas Chico.")
+  limitations         String   @default("No dar precios finales sin confirmación de volumen por un agente.")
+  // SQLite does not natively support JSON lists, so we use String to store serialized JSON
+  customRules         String   @default("[]") // Almacenará un array de { id, title, keywords, response }
+  updatedAt           DateTime @updatedAt
+}
+
+// ----------------------------------------------------------------------------
+// Cotizador Module Models
+// ----------------------------------------------------------------------------
+
+model Quote {
+  id          String      @id @default(uuid())
+  clientId    String
+  client      Client      @relation(fields: [clientId], references: [id])
+  origin      String
+  destination String
+  volume      Float?      // In cubic meters
+  price       Float?
+  status      String      @default("PENDING") // Status: PENDING, ACCEPTED, REJECTED
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
