@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Request, Response } from 'express';
+import { z } from 'zod';
 import { processIncomingMessage } from '../services/conversationFlow';
 
 interface RawBodyRequest extends Request {
@@ -17,9 +18,27 @@ const isValidMetaSignature = (req: RawBodyRequest) => {
   return expectedBuffer.length === signatureBuffer.length && crypto.timingSafeEqual(expectedBuffer, signatureBuffer);
 };
 
+const webhookMessageSchema = z.object({
+  id: z.string().min(1),
+  from: z.string().min(1),
+  type: z.string().min(1),
+  text: z.object({ body: z.string() }).optional(),
+  image: z.object({ id: z.string().min(1) }).optional(),
+  document: z.object({ id: z.string().min(1), caption: z.string().optional() }).optional()
+}).passthrough();
+
+const webhookBodySchema = z.object({
+  object: z.literal('whatsapp_business_account'),
+  entry: z.array(z.object({
+    changes: z.array(z.object({
+      value: z.object({ messages: z.array(webhookMessageSchema).optional() }).passthrough()
+    }).passthrough())
+  }).passthrough())
+}).passthrough();
+
 /**
  * GET /api/bot/webhook
- * Utilizado por Meta/WhatsApp para verificar el webhook configurado
+ * Used by Meta/WhatsApp to verify the configured webhook.
  */
 export const verifyWebhook = (req: Request, res: Response) => {
   const verifyToken = process.env.WA_VERIFY_TOKEN;
@@ -42,16 +61,18 @@ export const verifyWebhook = (req: Request, res: Response) => {
 
 /**
  * POST /api/bot/webhook
- * Recibe los mensajes enviados por los usuarios a través de WhatsApp
+ * Receives messages sent by users through WhatsApp.
  */
 export const receiveMessage = async (req: RawBodyRequest, res: Response) => {
   if (!isValidMetaSignature(req)) return res.sendStatus(401);
 
-  // WhatsApp requiere que respondamos con 200 OK rápidamente para no reintentar
+  // WhatsApp requires a quick 200 response to avoid retries.
   res.sendStatus(200);
 
   try {
-    const body = req.body;
+    const parsedBody = webhookBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return;
+    const body = parsedBody.data;
 
     // Verificar si es un evento de mensaje de WhatsApp válido
     if (body.object === 'whatsapp_business_account') {
@@ -59,7 +80,7 @@ export const receiveMessage = async (req: RawBodyRequest, res: Response) => {
         for (const change of entry.changes) {
           if (change.value?.messages) {
             for (const message of change.value.messages) {
-            const from = message.from; // Número de teléfono del remitente
+            const from = message.from;
             const type = message.type === 'text'
               ? 'TEXT'
               : message.type === 'image'
@@ -68,13 +89,13 @@ export const receiveMessage = async (req: RawBodyRequest, res: Response) => {
                   ? 'DOCUMENT'
                   : 'UNSUPPORTED';
             const text = message.type === 'text'
-              ? message.text.body
+              ? message.text?.body
               : message.type === 'document'
                 ? message.document?.caption
                 : undefined;
             const mediaId = message.image?.id ?? message.document?.id;
 
-            console.log(`Mensaje recibido de ${from}: ${text ?? type}`);
+            console.log(`WhatsApp message received from ${from}: ${text ?? type}`);
             await processIncomingMessage(from, text, message.id, type, mediaId);
             }
           }
@@ -82,6 +103,6 @@ export const receiveMessage = async (req: RawBodyRequest, res: Response) => {
       }
     }
   } catch (error) {
-    console.error('Error al procesar el mensaje de WhatsApp:', error);
+    console.error('Error processing WhatsApp message:', error);
   }
 };

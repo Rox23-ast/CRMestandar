@@ -4,6 +4,7 @@ import { AuthenticatedRequest } from '../../core/auth/authMiddleware';
 import { prisma } from '../../core/database/prisma';
 import { sendWhatsAppMessage } from '../../bot/services/whatsappService';
 import {
+  DEFAULT_WEEKLY_SCHEDULE,
   manuallyAssignConversation,
   recordOutboundMessage,
   returnConversationToBot,
@@ -16,7 +17,7 @@ const listQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   status: z.string().optional(),
   priority: z.string().optional(),
-  assignedUserId: z.string().optional()
+  assignedUserId: z.string().uuid().optional()
 });
 
 const messageSchema = z.object({
@@ -43,6 +44,14 @@ const businessHoursSchema = z.object({
   weeklySchedule: z.record(z.string(), z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/) }).nullable())
 });
 
+const exceptionSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  isOpen: z.boolean(),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+  reason: z.string().max(200).nullable().optional()
+});
+
 const problem = (res: Response, status: number, title: string, detail?: string) =>
   res.status(status).json({
     type: `https://httpstatuses.com/${status}`,
@@ -50,6 +59,8 @@ const problem = (res: Response, status: number, title: string, detail?: string) 
     status,
     ...(detail ? { detail } : {})
   });
+
+const parseConversationId = (value: unknown) => z.string().uuid().safeParse(value);
 
 const canSeeAllConversations = (role: string) => ['ADMIN', 'MARKETING_DIRECTOR'].includes(role);
 
@@ -89,7 +100,9 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
 
 export const getConversation = async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return problem(res, 401, 'Authentication required');
-  const conversationId = String(req.params.id);
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Conversation ID is invalid');
+  const conversationId = parsedId.data;
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -103,7 +116,8 @@ export const getConversation = async (req: AuthenticatedRequest, res: Response) 
   });
 
   if (!conversation) return problem(res, 404, 'Conversation not found');
-  if (!canSeeAllConversations(req.user.role) && conversation.assignedUserId !== req.user.id) {
+  const canAccessQueue = !conversation.assignedUserId && conversation.assignedRole === 'MARKETING_DIRECTOR';
+  if (!canSeeAllConversations(req.user.role) && conversation.assignedUserId !== req.user.id && !canAccessQueue) {
     return problem(res, 403, 'Insufficient permissions');
   }
 
@@ -112,7 +126,9 @@ export const getConversation = async (req: AuthenticatedRequest, res: Response) 
 
 export const claimConversation = async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return problem(res, 401, 'Authentication required');
-  const conversationId = String(req.params.id);
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Conversation ID is invalid');
+  const conversationId = parsedId.data;
 
   try {
     const conversation = await takeConversation(conversationId, req.user.id);
@@ -121,6 +137,7 @@ export const claimConversation = async (req: AuthenticatedRequest, res: Response
     const code = error instanceof Error ? error.message : 'UNKNOWN';
     if (code === 'CONVERSATION_NOT_FOUND') return problem(res, 404, 'Conversation not found');
     if (code === 'CONVERSATION_ALREADY_ASSIGNED') return problem(res, 409, 'Conversation is assigned to another agent');
+    if (code === 'MARKETING_QUEUE_REQUIRES_DIRECTOR') return problem(res, 403, 'Marketing must assign this conversation');
     if (code === 'USER_NOT_ALLOWED') return problem(res, 403, 'Insufficient permissions');
     return problem(res, 500, 'Unable to claim conversation');
   }
@@ -128,7 +145,9 @@ export const claimConversation = async (req: AuthenticatedRequest, res: Response
 
 export const reactivateBot = async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return problem(res, 401, 'Authentication required');
-  const conversationId = String(req.params.id);
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Conversation ID is invalid');
+  const conversationId = parsedId.data;
 
   try {
     return res.json(await returnConversationToBot(conversationId, req.user.id));
@@ -142,7 +161,9 @@ export const reactivateBot = async (req: AuthenticatedRequest, res: Response) =>
 
 export const assignConversation = async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return problem(res, 401, 'Authentication required');
-  const conversationId = String(req.params.id);
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Conversation ID is invalid');
+  const conversationId = parsedId.data;
   const parsed = assignmentSchema.safeParse(req.body);
   if (!parsed.success) return problem(res, 400, 'Invalid assignment request');
 
@@ -160,12 +181,21 @@ export const updateConversationStatus = async (req: AuthenticatedRequest, res: R
   if (!req.user) return problem(res, 401, 'Authentication required');
   const parsed = statusSchema.safeParse(req.body);
   if (!parsed.success) return problem(res, 400, 'Conversation status data is invalid');
-  const conversationId = String(req.params.id);
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Conversation ID is invalid');
+  const conversationId = parsedId.data;
   const current = await prisma.conversation.findUnique({ where: { id: conversationId } });
   if (!current) return problem(res, 404, 'Conversation not found');
   if (!canSeeAllConversations(req.user.role) && current.assignedUserId !== req.user.id) {
     return problem(res, 403, 'Conversation is not assigned to this user');
   }
+
+  const sla = await prisma.slaPolicy.findUnique({ where: { id: 'default' } });
+  const nextFollowUpAt = parsed.data.nextFollowUpAt === undefined
+    ? parsed.data.status === 'HUMAN_ACTIVE'
+      ? new Date(Date.now() + (sla?.followUpMinutes ?? 1440) * 60 * 1000)
+      : undefined
+    : parsed.data.nextFollowUpAt ? new Date(parsed.data.nextFollowUpAt) : null;
 
   const conversation = await prisma.$transaction(async (tx) => {
     const updated = await tx.conversation.update({
@@ -173,9 +203,7 @@ export const updateConversationStatus = async (req: AuthenticatedRequest, res: R
       data: {
         status: parsed.data.status,
         priority: parsed.data.priority,
-        nextFollowUpAt: parsed.data.nextFollowUpAt === undefined
-          ? undefined
-          : parsed.data.nextFollowUpAt ? new Date(parsed.data.nextFollowUpAt) : null
+        nextFollowUpAt
       }
     });
     await tx.auditEvent.create({
@@ -211,7 +239,7 @@ export const getBusinessHours = async (_req: AuthenticatedRequest, res: Response
   const config = await prisma.businessHoursConfig.findUnique({ where: { id: 'default' } });
   return res.json({
     timezone: config?.timezone ?? 'America/Bogota',
-    weeklySchedule: config ? JSON.parse(config.weeklySchedule) : {}
+    weeklySchedule: config ? JSON.parse(config.weeklySchedule) : DEFAULT_WEEKLY_SCHEDULE
   });
 };
 
@@ -226,9 +254,33 @@ export const updateBusinessHours = async (req: AuthenticatedRequest, res: Respon
   return res.json({ timezone: config.timezone, weeklySchedule: JSON.parse(config.weeklySchedule) });
 };
 
+export const listBusinessHourExceptions = async (_req: AuthenticatedRequest, res: Response) => {
+  return res.json(await prisma.businessHoursException.findMany({ orderBy: { date: 'asc' } }));
+};
+
+export const saveBusinessHourException = async (req: AuthenticatedRequest, res: Response) => {
+  const parsed = exceptionSchema.safeParse(req.body);
+  if (!parsed.success) return problem(res, 400, 'Business-hours exception is invalid');
+  const exception = await prisma.businessHoursException.upsert({
+    where: { date: parsed.data.date },
+    create: { ...parsed.data },
+    update: { ...parsed.data }
+  });
+  return res.json(exception);
+};
+
+export const deleteBusinessHourException = async (req: AuthenticatedRequest, res: Response) => {
+  const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).safeParse(req.params.date);
+  if (!date.success) return problem(res, 400, 'Exception date is invalid');
+  await prisma.businessHoursException.deleteMany({ where: { date: date.data } });
+  return res.status(204).send();
+};
+
 export const sendAgentMessage = async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return problem(res, 401, 'Authentication required');
-  const conversationId = String(req.params.id);
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Conversation ID is invalid');
+  const conversationId = parsedId.data;
   const parsed = messageSchema.safeParse(req.body);
   if (!parsed.success) return problem(res, 400, 'Message body is invalid');
 
@@ -276,7 +328,9 @@ export const listNotifications = async (req: AuthenticatedRequest, res: Response
 
 export const markNotificationRead = async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return problem(res, 401, 'Authentication required');
-  const notificationId = String(req.params.id);
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Notification ID is invalid');
+  const notificationId = parsedId.data;
   const result = await prisma.notification.updateMany({
     where: {
       id: notificationId,

@@ -19,7 +19,7 @@ interface WeeklySlot {
 
 type WeeklySchedule = Record<string, WeeklySlot | null>;
 
-const DEFAULT_WEEKLY_SCHEDULE: WeeklySchedule = {
+export const DEFAULT_WEEKLY_SCHEDULE: WeeklySchedule = {
   '0': null,
   '1': { start: '08:00', end: '18:00' },
   '2': { start: '08:00', end: '18:00' },
@@ -186,20 +186,18 @@ const notifyAssignment = async (conversation: Conversation, target: AssignmentTa
 };
 
 export const createOrGetConversation = async (phone: string, now = new Date()) => {
-  const client = await prisma.client.upsert({
-    where: { phone },
-    update: {},
-    create: { phone, botStep: 'START' }
-  });
+  const result = await prisma.$transaction(async (tx) => {
+    const client = await tx.client.upsert({
+      where: { phone },
+      update: {},
+      create: { phone, botStep: 'START' }
+    });
+    const existing = await tx.conversation.findFirst({
+      where: { clientId: client.id, status: { in: [...ACTIVE_CONVERSATION_STATUSES] } },
+      orderBy: { updatedAt: 'desc' }
+    });
+    if (existing) return { conversation: existing, isNew: false, target: undefined };
 
-  let conversation = await prisma.conversation.findFirst({
-    where: { clientId: client.id, status: { in: [...ACTIVE_CONVERSATION_STATUSES] } },
-    orderBy: { updatedAt: 'desc' }
-  });
-
-  if (conversation) return { conversation, isNew: false };
-
-  conversation = await prisma.$transaction(async (tx) => {
     const target = await getAssignmentTarget(tx, now);
     const sla = await tx.slaPolicy.findUnique({ where: { id: 'default' } });
     const created = await tx.conversation.create({
@@ -208,18 +206,17 @@ export const createOrGetConversation = async (phone: string, now = new Date()) =
         status: 'BOT_ACTIVE',
         assignedUserId: target.userId,
         assignedRole: target.role,
-        firstResponseDueAt: new Date(now.getTime() + (sla?.firstResponseMinutes ?? 15) * 60 * 1000)
+        firstResponseDueAt: new Date(now.getTime() + (sla?.firstResponseMinutes ?? 15) * 60 * 1000),
+        nextFollowUpAt: new Date(now.getTime() + (sla?.followUpMinutes ?? 1440) * 60 * 1000)
       }
     });
-    return createAssignment(tx, created.id, target);
+    return { conversation: await createAssignment(tx, created.id, target), isNew: true, target };
   });
 
-  await notifyAssignment(conversation, {
-    userId: conversation.assignedUserId ?? undefined,
-    role: conversation.assignedRole ?? undefined,
-    reason: 'INITIAL_ASSIGNMENT'
-  });
-  return { conversation, isNew: true };
+  if (result.isNew) {
+    await notifyAssignment(result.conversation, result.target!);
+  }
+  return { conversation: result.conversation, isNew: result.isNew };
 };
 
 export const recordInboundMessage = async (input: {
@@ -248,6 +245,14 @@ export const recordInboundMessage = async (input: {
     }
   });
 
+  await prisma.auditEvent.create({
+    data: {
+      conversationId: conversation.id,
+      eventType: 'MESSAGE_RECEIVED',
+      payload: JSON.stringify({ type: input.type ?? 'TEXT', externalId: input.externalId })
+    }
+  });
+
   const nextStatus = conversation.status === 'RESOLVED'
     ? conversation.assignedUserId ? 'HUMAN_ACTIVE' : 'BOT_ACTIVE'
     : conversation.status;
@@ -257,9 +262,10 @@ export const recordInboundMessage = async (input: {
     data: { lastMessageAt: message.createdAt, status: nextStatus }
   });
 
-  if (conversation.assignedUserId) {
+  if (conversation.assignedUserId || conversation.assignedRole) {
     await createNotification({
-      userId: conversation.assignedUserId,
+      userId: conversation.assignedUserId ?? undefined,
+      role: conversation.assignedRole ?? undefined,
       conversationId: conversation.id,
       type: 'MESSAGE_RECEIVED',
       title: 'Nuevo mensaje de cliente',
@@ -292,6 +298,14 @@ export const recordOutboundMessage = async (input: {
     data: { lastMessageAt: message.createdAt }
   });
 
+  await prisma.auditEvent.create({
+    data: {
+      conversationId: input.conversationId,
+      eventType: 'MESSAGE_SENT',
+      payload: JSON.stringify({ senderType: input.senderType, deliveryStatus: input.deliveryStatus })
+    }
+  });
+
   return message;
 };
 
@@ -306,6 +320,9 @@ export const takeConversation = async (conversationId: string, userId: string) =
     if (!current) throw new Error('CONVERSATION_NOT_FOUND');
     if (user.role === 'AGENT' && current.assignedUserId && current.assignedUserId !== userId) {
       throw new Error('CONVERSATION_ALREADY_ASSIGNED');
+    }
+    if (user.role === 'AGENT' && current.assignedRole === MARKETING_ROLE) {
+      throw new Error('MARKETING_QUEUE_REQUIRES_DIRECTOR');
     }
 
     const target = { userId, reason: 'MANUAL_CLAIM', status: 'HUMAN_ACTIVE' };

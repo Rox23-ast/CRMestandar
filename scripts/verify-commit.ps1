@@ -20,6 +20,18 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "Build compiled successfully with 0 warnings/errors." -ForegroundColor Green
 
+Write-Host "Step 1b: Building frontend..." -ForegroundColor Yellow
+Push-Location -LiteralPath "./frontend"
+npm run build
+$frontendExitCode = $LASTEXITCODE
+Pop-Location
+
+if ($frontendExitCode -ne 0) {
+    Write-Host "CRITICAL: Frontend compilation failed. Commit aborted." -ForegroundColor Red
+    exit 1
+}
+Write-Host "Frontend compiled successfully." -ForegroundColor Green
+
 
 # ---------------------------------------------------------
 # STEP 2: RUN UNIT TESTS

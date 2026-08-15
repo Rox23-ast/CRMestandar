@@ -92,10 +92,7 @@ export const processIncomingMessage = async (
           fromPhone,
           '¡Gracias! He registrado tus datos. Un agente se pondrá en contacto contigo para continuar.'
         );
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { status: 'HUMAN_ACTIVE' }
-        });
+        await updateClientStep(fromPhone, 'AGENT_HANDOFF');
         if (conversation.assignedUserId) {
           await createNotification({
             userId: conversation.assignedUserId,
@@ -105,6 +102,13 @@ export const processIncomingMessage = async (
             body: 'El bot terminó la captura inicial y requiere atención humana.'
           });
         }
+        return;
+      case 'AGENT_HANDOFF':
+        await sendAndRecordBotMessage(
+          conversation.id,
+          fromPhone,
+          'Tu solicitud está lista para revisión. Un agente humano continuará el seguimiento por este medio.'
+        );
         return;
       default:
         break;

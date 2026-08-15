@@ -7,10 +7,13 @@ import {
   getConversation,
   getBusinessHours,
   getSlaPolicy,
+  deleteBusinessHourException,
+  listBusinessHourExceptions,
   listConversations,
   listNotifications,
   markNotificationRead,
   reactivateBot,
+  saveBusinessHourException,
   sendAgentMessage,
   streamCrmEvents,
   updateBusinessHours,
@@ -35,6 +38,9 @@ crmRouter.get('/settings/sla', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), ge
 crmRouter.put('/settings/sla', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), updateSlaPolicy);
 crmRouter.get('/settings/business-hours', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), getBusinessHours);
 crmRouter.put('/settings/business-hours', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), updateBusinessHours);
+crmRouter.get('/settings/business-hours/exceptions', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), listBusinessHourExceptions);
+crmRouter.put('/settings/business-hours/exceptions', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), saveBusinessHourException);
+crmRouter.delete('/settings/business-hours/exceptions/:date', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), deleteBusinessHourException);
 crmRouter.get('/notifications', listNotifications);
 crmRouter.patch('/notifications/:id/read', markNotificationRead);
 crmRouter.get('/events', streamCrmEvents);

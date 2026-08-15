@@ -65,6 +65,7 @@ La persistencia de datos se maneja mediante **SQLite** y se gestiona con el ORM 
 - `PATCH /api/crm/conversations/:id/status`: Actualiza estado, prioridad y próxima fecha de seguimiento.
 - `GET/PUT /api/crm/settings/sla`: Consulta o modifica tiempos de primera respuesta y seguimiento.
 - `GET/PUT /api/crm/settings/business-hours`: Consulta o modifica zona horaria y horario semanal.
+- `GET/PUT/DELETE /api/crm/settings/business-hours/exceptions`: Gestiona festivos y excepciones de horario.
 
 Las rutas CRM, excepto `auth/bootstrap` y `auth/login`, requieren un JWT Bearer válido y cargan el usuario desde la base de datos. Las contraseñas se almacenan usando scrypt con salt. Las respuestas de error usan un formato Problem Details reducido y las entradas se validan con Zod.
 

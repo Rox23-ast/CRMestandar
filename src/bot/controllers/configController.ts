@@ -5,7 +5,7 @@ export const getBotConfig = async (req: Request, res: Response) => {
   try {
     let config = await prisma.botConfig.findFirst();
     
-    // If no config exists, return default empty state (it will be created on first PUT)
+    // Return defaults until the first configuration is persisted.
     if (!config) {
       config = {
         id: 'new',
@@ -18,7 +18,7 @@ export const getBotConfig = async (req: Request, res: Response) => {
       };
     }
     
-    // Parse customRules to JSON array for frontend
+    // Serialize custom rules as an array for the frontend.
     res.json({
       ...config,
       customRules: JSON.parse(config.customRules)
@@ -59,7 +59,7 @@ export const updateBotConfig = async (req: Request, res: Response) => {
       });
     }
     
-    // Convertir de vuelta a JSON para la respuesta HTTP
+    // Serialize custom rules as an array for the HTTP response.
     res.json({
       ...config,
       customRules: JSON.parse(config.customRules)

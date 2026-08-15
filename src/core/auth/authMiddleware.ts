@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { z } from 'zod';
 import { prisma } from '../database/prisma';
 
 export interface AuthenticatedRequest extends Request {
@@ -10,9 +11,7 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-interface TokenPayload {
-  sub?: string;
-}
+const tokenPayloadSchema = z.object({ sub: z.string().uuid() });
 
 export const requireCrmUser = async (
   req: AuthenticatedRequest,
@@ -33,9 +32,9 @@ export const requireCrmUser = async (
 
   try {
     const token = authorization.slice('Bearer '.length);
-    const payload = jwt.verify(token, secret) as TokenPayload;
+    const payload = tokenPayloadSchema.safeParse(jwt.verify(token, secret));
 
-    if (!payload.sub) {
+    if (!payload.success) {
       return res.status(401).json({
         type: 'https://httpstatuses.com/401',
         title: 'Invalid authentication token',
@@ -43,7 +42,7 @@ export const requireCrmUser = async (
       });
     }
 
-    const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+    const user = await prisma.user.findUnique({ where: { id: payload.data.sub } });
     if (!user) {
       return res.status(401).json({
         type: 'https://httpstatuses.com/401',
