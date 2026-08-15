@@ -35,20 +35,27 @@ export const bootstrapAdmin = async (req: Request, res: Response) => {
   if (parsed.data.bootstrapToken !== process.env.CRM_BOOTSTRAP_TOKEN) {
     return problem(res, 401, 'Invalid bootstrap token');
   }
+  if (!process.env.JWT_SECRET) return problem(res, 500, 'JWT secret is not configured');
 
-  const userCount = await prisma.user.count();
-  if (userCount > 0) return problem(res, 409, 'CRM bootstrap has already been completed');
+  try {
+    const user = await prisma.$transaction(async (tx) => {
+      // Creating this singleton inside the transaction makes bootstrap one-time under concurrent requests.
+      await tx.bootstrapState.create({ data: { id: 'default' } });
+      return tx.user.create({
+        data: {
+          email: parsed.data.email.toLowerCase(),
+          password: await hashPassword(parsed.data.password),
+          name: parsed.data.name,
+          role: 'ADMIN'
+        }
+      });
+    });
 
-  const user = await prisma.user.create({
-    data: {
-      email: parsed.data.email.toLowerCase(),
-      password: await hashPassword(parsed.data.password),
-      name: parsed.data.name,
-      role: 'ADMIN'
-    }
-  });
-
-  return res.status(201).json({ id: user.id, email: user.email, name: user.name, role: user.role, token: issueToken(user) });
+    await prisma.bootstrapState.update({ where: { id: 'default' }, data: { completedAt: new Date() } });
+    return res.status(201).json({ id: user.id, email: user.email, name: user.name, role: user.role, token: issueToken(user) });
+  } catch {
+    return problem(res, 409, 'CRM bootstrap has already been completed');
+  }
 };
 
 export const login = async (req: Request, res: Response) => {

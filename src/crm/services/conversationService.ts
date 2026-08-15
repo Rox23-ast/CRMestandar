@@ -33,6 +33,7 @@ interface AssignmentTarget {
   userId?: string;
   role?: string;
   reason: string;
+  status?: string;
 }
 
 const parseTime = (value: string) => {
@@ -77,7 +78,14 @@ export const isWithinBusinessHours = async (date = new Date()) => {
     return isWithinTimeSlot(parts.minutes, { start: exception.startTime, end: exception.endTime });
   }
 
-  const schedule: WeeklySchedule = config ? JSON.parse(config.weeklySchedule) : DEFAULT_WEEKLY_SCHEDULE;
+  let schedule = DEFAULT_WEEKLY_SCHEDULE;
+  if (config) {
+    try {
+      schedule = JSON.parse(config.weeklySchedule) as WeeklySchedule;
+    } catch {
+      schedule = DEFAULT_WEEKLY_SCHEDULE;
+    }
+  }
   const slot = schedule[String(parts.dayOfWeek)];
   return isWithinTimeSlot(parts.minutes, slot);
 };
@@ -134,7 +142,7 @@ const createAssignment = async (
     data: {
       assignedUserId: target.userId,
       assignedRole: target.role,
-      status: 'BOT_ACTIVE'
+      status: target.status ?? 'BOT_ACTIVE'
     }
   });
 
@@ -191,21 +199,26 @@ export const createOrGetConversation = async (phone: string, now = new Date()) =
 
   if (conversation) return { conversation, isNew: false };
 
-  const target = await getAssignmentTarget(prisma, now);
   conversation = await prisma.$transaction(async (tx) => {
+    const target = await getAssignmentTarget(tx, now);
+    const sla = await tx.slaPolicy.findUnique({ where: { id: 'default' } });
     const created = await tx.conversation.create({
       data: {
         clientId: client.id,
         status: 'BOT_ACTIVE',
         assignedUserId: target.userId,
         assignedRole: target.role,
-        firstResponseDueAt: new Date(now.getTime() + 15 * 60 * 1000)
+        firstResponseDueAt: new Date(now.getTime() + (sla?.firstResponseMinutes ?? 15) * 60 * 1000)
       }
     });
     return createAssignment(tx, created.id, target);
   });
 
-  await notifyAssignment(conversation, target);
+  await notifyAssignment(conversation, {
+    userId: conversation.assignedUserId ?? undefined,
+    role: conversation.assignedRole ?? undefined,
+    reason: 'INITIAL_ASSIGNMENT'
+  });
   return { conversation, isNew: true };
 };
 
@@ -291,8 +304,11 @@ export const takeConversation = async (conversationId: string, userId: string) =
   const conversation = await prisma.$transaction(async (tx) => {
     const current = await tx.conversation.findUnique({ where: { id: conversationId } });
     if (!current) throw new Error('CONVERSATION_NOT_FOUND');
+    if (user.role === 'AGENT' && current.assignedUserId && current.assignedUserId !== userId) {
+      throw new Error('CONVERSATION_ALREADY_ASSIGNED');
+    }
 
-    const target = { userId, reason: 'MANUAL_CLAIM' };
+    const target = { userId, reason: 'MANUAL_CLAIM', status: 'HUMAN_ACTIVE' };
     await createAssignment(tx, conversationId, target, userId);
     return tx.conversation.update({ where: { id: conversationId }, data: { status: 'HUMAN_ACTIVE' } });
   });
@@ -332,7 +348,7 @@ export const manuallyAssignConversation = async (
   }
 
   const conversation = await prisma.$transaction(async (tx) => {
-    return createAssignment(tx, conversationId, { userId: targetUserId, reason: 'MANUAL_ASSIGNMENT' }, assignedByUserId);
+    return createAssignment(tx, conversationId, { userId: targetUserId, reason: 'MANUAL_ASSIGNMENT', status: 'HUMAN_ACTIVE' }, assignedByUserId);
   });
 
   await notifyAssignment(conversation, { userId: targetUserId, reason: 'MANUAL_ASSIGNMENT' });

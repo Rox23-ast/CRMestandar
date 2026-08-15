@@ -27,6 +27,22 @@ const assignmentSchema = z.object({
   userId: z.string().uuid()
 });
 
+const statusSchema = z.object({
+  status: z.enum(['NEW', 'BOT_ACTIVE', 'HUMAN_ACTIVE', 'WAITING_CUSTOMER', 'RESOLVED', 'CLOSED']),
+  priority: z.enum(['URGENT', 'HIGH', 'NORMAL', 'LOW']).optional(),
+  nextFollowUpAt: z.string().datetime().nullable().optional()
+});
+
+const slaSchema = z.object({
+  firstResponseMinutes: z.number().int().min(1).max(10080),
+  followUpMinutes: z.number().int().min(1).max(43200)
+});
+
+const businessHoursSchema = z.object({
+  timezone: z.string().min(1).max(100),
+  weeklySchedule: z.record(z.string(), z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/) }).nullable())
+});
+
 const problem = (res: Response, status: number, title: string, detail?: string) =>
   res.status(status).json({
     type: `https://httpstatuses.com/${status}`,
@@ -104,6 +120,7 @@ export const claimConversation = async (req: AuthenticatedRequest, res: Response
   } catch (error) {
     const code = error instanceof Error ? error.message : 'UNKNOWN';
     if (code === 'CONVERSATION_NOT_FOUND') return problem(res, 404, 'Conversation not found');
+    if (code === 'CONVERSATION_ALREADY_ASSIGNED') return problem(res, 409, 'Conversation is assigned to another agent');
     if (code === 'USER_NOT_ALLOWED') return problem(res, 403, 'Insufficient permissions');
     return problem(res, 500, 'Unable to claim conversation');
   }
@@ -139,6 +156,76 @@ export const assignConversation = async (req: AuthenticatedRequest, res: Respons
   }
 };
 
+export const updateConversationStatus = async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return problem(res, 401, 'Authentication required');
+  const parsed = statusSchema.safeParse(req.body);
+  if (!parsed.success) return problem(res, 400, 'Conversation status data is invalid');
+  const conversationId = String(req.params.id);
+  const current = await prisma.conversation.findUnique({ where: { id: conversationId } });
+  if (!current) return problem(res, 404, 'Conversation not found');
+  if (!canSeeAllConversations(req.user.role) && current.assignedUserId !== req.user.id) {
+    return problem(res, 403, 'Conversation is not assigned to this user');
+  }
+
+  const conversation = await prisma.$transaction(async (tx) => {
+    const updated = await tx.conversation.update({
+      where: { id: conversationId },
+      data: {
+        status: parsed.data.status,
+        priority: parsed.data.priority,
+        nextFollowUpAt: parsed.data.nextFollowUpAt === undefined
+          ? undefined
+          : parsed.data.nextFollowUpAt ? new Date(parsed.data.nextFollowUpAt) : null
+      }
+    });
+    await tx.auditEvent.create({
+      data: {
+        conversationId,
+        actorUserId: req.user?.id,
+        eventType: 'CONVERSATION_STATUS_UPDATED',
+        payload: JSON.stringify(parsed.data)
+      }
+    });
+    return updated;
+  });
+  return res.json(conversation);
+};
+
+export const getSlaPolicy = async (_req: AuthenticatedRequest, res: Response) => {
+  const policy = await prisma.slaPolicy.findUnique({ where: { id: 'default' } });
+  return res.json(policy ?? { id: 'default', firstResponseMinutes: 15, followUpMinutes: 1440 });
+};
+
+export const updateSlaPolicy = async (req: AuthenticatedRequest, res: Response) => {
+  const parsed = slaSchema.safeParse(req.body);
+  if (!parsed.success) return problem(res, 400, 'SLA data is invalid');
+  const policy = await prisma.slaPolicy.upsert({
+    where: { id: 'default' },
+    create: { id: 'default', ...parsed.data },
+    update: parsed.data
+  });
+  return res.json(policy);
+};
+
+export const getBusinessHours = async (_req: AuthenticatedRequest, res: Response) => {
+  const config = await prisma.businessHoursConfig.findUnique({ where: { id: 'default' } });
+  return res.json({
+    timezone: config?.timezone ?? 'America/Bogota',
+    weeklySchedule: config ? JSON.parse(config.weeklySchedule) : {}
+  });
+};
+
+export const updateBusinessHours = async (req: AuthenticatedRequest, res: Response) => {
+  const parsed = businessHoursSchema.safeParse(req.body);
+  if (!parsed.success) return problem(res, 400, 'Business-hours data is invalid');
+  const config = await prisma.businessHoursConfig.upsert({
+    where: { id: 'default' },
+    create: { id: 'default', timezone: parsed.data.timezone, weeklySchedule: JSON.stringify(parsed.data.weeklySchedule) },
+    update: { timezone: parsed.data.timezone, weeklySchedule: JSON.stringify(parsed.data.weeklySchedule) }
+  });
+  return res.json({ timezone: config.timezone, weeklySchedule: JSON.parse(config.weeklySchedule) });
+};
+
 export const sendAgentMessage = async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return problem(res, 401, 'Authentication required');
   const conversationId = String(req.params.id);
@@ -157,6 +244,10 @@ export const sendAgentMessage = async (req: AuthenticatedRequest, res: Response)
   if (!client) return problem(res, 404, 'Conversation client not found');
 
   const sent = await sendWhatsAppMessage(client.phone, parsed.data.body);
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { status: 'HUMAN_ACTIVE' }
+  });
   const message = await recordOutboundMessage({
     conversationId: conversation.id,
     body: parsed.data.body,

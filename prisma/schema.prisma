@@ -153,6 +153,18 @@ model BusinessHoursException {
   updatedAt DateTime @updatedAt
 }
 
+model SlaPolicy {
+  id                   String   @id @default("default")
+  firstResponseMinutes Int      @default(15)
+  followUpMinutes     Int      @default(1440)
+  updatedAt            DateTime @updatedAt
+}
+
+model BootstrapState {
+  id          String   @id @default("default")
+  completedAt DateTime?
+}
+
 // ----------------------------------------------------------------------------
 // Bot Configuration Models
 // ----------------------------------------------------------------------------

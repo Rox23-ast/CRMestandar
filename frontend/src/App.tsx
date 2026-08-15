@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import CrmInbox from './CrmInbox'
 import { 
   MessageSquare, 
   ShieldAlert, 
@@ -27,6 +28,7 @@ interface BotConfig {
 }
 
 function App() {
+  const [activePanel, setActivePanel] = useState<'bot' | 'crm'>('bot')
   const [activeTab, setActiveTab] = useState<'messages' | 'personality' | 'rules' | 'dynamic'>('messages')
   const [config, setConfig] = useState<BotConfig>({
     greetingMessage: '',
@@ -105,6 +107,8 @@ function App() {
     return <div className="min-h-screen flex items-center justify-center bg-neutral-light text-primary">Cargando...</div>
   }
 
+  if (activePanel === 'crm') return <CrmInbox onBack={() => setActivePanel('bot')} />
+
   return (
     <div className="flex min-h-screen bg-neutral-light font-raleway">
       
@@ -118,6 +122,14 @@ function App() {
         </div>
         
         <nav className="flex-1 px-4 py-6 space-y-2">
+          <button
+            onClick={() => setActivePanel('crm')}
+            className="w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-neutral-gray hover:bg-primary-light/50"
+          >
+            <MessageSquare className="w-5 h-5" />
+            <span>Bandeja CRM</span>
+          </button>
+
           <button 
             onClick={() => setActiveTab('messages')}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${activeTab === 'messages' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'}`}

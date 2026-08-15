@@ -5,12 +5,17 @@ import {
   assignConversation,
   claimConversation,
   getConversation,
+  getBusinessHours,
+  getSlaPolicy,
   listConversations,
   listNotifications,
   markNotificationRead,
   reactivateBot,
   sendAgentMessage,
-  streamCrmEvents
+  streamCrmEvents,
+  updateBusinessHours,
+  updateConversationStatus,
+  updateSlaPolicy
 } from './controllers/conversationController';
 
 export const crmRouter = Router();
@@ -24,7 +29,12 @@ crmRouter.get('/conversations/:id', getConversation);
 crmRouter.post('/conversations/:id/claim', claimConversation);
 crmRouter.post('/conversations/:id/bot', reactivateBot);
 crmRouter.post('/conversations/:id/assign', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), assignConversation);
+crmRouter.patch('/conversations/:id/status', updateConversationStatus);
 crmRouter.post('/conversations/:id/messages', sendAgentMessage);
+crmRouter.get('/settings/sla', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), getSlaPolicy);
+crmRouter.put('/settings/sla', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), updateSlaPolicy);
+crmRouter.get('/settings/business-hours', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), getBusinessHours);
+crmRouter.put('/settings/business-hours', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), updateBusinessHours);
 crmRouter.get('/notifications', listNotifications);
 crmRouter.patch('/notifications/:id/read', markNotificationRead);
 crmRouter.get('/events', streamCrmEvents);
