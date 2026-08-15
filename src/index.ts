@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { getBotConfig, updateBotConfig } from './bot/controllers/configController';
 import { verifyWebhook, receiveMessage } from './bot/controllers/webhookController';
+import { crmRouter } from './crm/routes';
 
 // Load environment variables
 dotenv.config();
@@ -15,7 +16,11 @@ const port = process.env.PORT || 3000;
 // Security Middlewares
 app.use(helmet()); // Protects headers
 app.use(cors()); // Enables Cross-Origin Resource Sharing
-app.use(express.json()); // Parses incoming JSON requests
+app.use(express.json({
+  verify: (req, _res, buffer) => {
+    (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+  }
+})); // Parses incoming JSON requests and preserves webhook bytes for signature validation
 
 // Rate Limiter to prevent brute-force/DDoS attacks
 const limiter = rateLimit({
@@ -38,6 +43,9 @@ app.put('/api/bot/config', updateBotConfig);
 // WhatsApp Webhook Endpoints
 app.get('/api/bot/webhook', verifyWebhook);
 app.post('/api/bot/webhook', receiveMessage);
+
+// CRM inbox and real-time notification endpoints
+app.use('/api/crm', crmRouter);
 
 // Start Server
 if (process.env.NODE_ENV !== 'test') {

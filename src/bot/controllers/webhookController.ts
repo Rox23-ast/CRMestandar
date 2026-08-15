@@ -1,6 +1,21 @@
+import crypto from 'node:crypto';
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { processIncomingMessage } from '../services/conversationFlow';
+
+interface RawBodyRequest extends Request {
+  rawBody?: Buffer;
+}
+
+const isValidMetaSignature = (req: RawBodyRequest) => {
+  const appSecret = process.env.WA_APP_SECRET;
+  const signature = req.header('x-hub-signature-256');
+  if (!appSecret || !signature || !req.rawBody) return false;
+
+  const expected = `sha256=${crypto.createHmac('sha256', appSecret).update(req.rawBody).digest('hex')}`;
+  const expectedBuffer = Buffer.from(expected);
+  const signatureBuffer = Buffer.from(signature);
+  return expectedBuffer.length === signatureBuffer.length && crypto.timingSafeEqual(expectedBuffer, signatureBuffer);
+};
 
 /**
  * GET /api/bot/webhook
@@ -29,7 +44,9 @@ export const verifyWebhook = (req: Request, res: Response) => {
  * POST /api/bot/webhook
  * Recibe los mensajes enviados por los usuarios a través de WhatsApp
  */
-export const receiveMessage = async (req: Request, res: Response) => {
+export const receiveMessage = async (req: RawBodyRequest, res: Response) => {
+  if (!isValidMetaSignature(req)) return res.sendStatus(401);
+
   // WhatsApp requiere que respondamos con 200 OK rápidamente para no reintentar
   res.sendStatus(200);
 
@@ -40,17 +57,25 @@ export const receiveMessage = async (req: Request, res: Response) => {
     if (body.object === 'whatsapp_business_account') {
       for (const entry of body.entry) {
         for (const change of entry.changes) {
-          if (change.value && change.value.messages && change.value.messages[0]) {
-            const message = change.value.messages[0];
+          if (change.value?.messages) {
+            for (const message of change.value.messages) {
             const from = message.from; // Número de teléfono del remitente
-            
-            // Si es un mensaje de texto
-            if (message.type === 'text') {
-              const text = message.text.body;
-              console.log(`Mensaje recibido de ${from}: ${text}`);
+            const type = message.type === 'text'
+              ? 'TEXT'
+              : message.type === 'image'
+                ? 'IMAGE'
+                : message.type === 'document'
+                  ? 'DOCUMENT'
+                  : 'UNSUPPORTED';
+            const text = message.type === 'text'
+              ? message.text.body
+              : message.type === 'document'
+                ? message.document?.caption
+                : undefined;
+            const mediaId = message.image?.id ?? message.document?.id;
 
-              // Delegar la lógica de conversación y estado al motor de flujos
-              await processIncomingMessage(from, text);
+            console.log(`Mensaje recibido de ${from}: ${text ?? type}`);
+            await processIncomingMessage(from, text, message.id, type, mediaId);
             }
           }
         }

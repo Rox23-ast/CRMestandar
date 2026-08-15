@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { 
   MessageSquare, 
-  Settings, 
   ShieldAlert, 
   Save, 
   Bot,
@@ -299,7 +298,7 @@ function App() {
                       No hay respuestas configuradas. Haz clic en "Añadir Regla" para empezar.
                     </div>
                   ) : (
-                    config.customRules.map((rule, index) => (
+                    config.customRules.map((rule) => (
                       <div key={rule.id} className="p-6 border border-neutral-gray rounded-lg bg-neutral-light/10 relative group">
                         <button 
                           onClick={() => handleRemoveRule(rule.id)}

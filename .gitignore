@@ -143,3 +143,9 @@ venv.bak/
 *.coverage
 *.xml
 TestResults/
+
+# ------------------------------------------
+# Local SQLite database
+# ------------------------------------------
+*.db
+*.db-journal

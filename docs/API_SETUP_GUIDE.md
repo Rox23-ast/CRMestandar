@@ -23,8 +23,31 @@ Requisito: Una cuenta de Facebook y un Facebook Business Manager verificado (o e
    -> Pégalo en tu `.env` como `WA_API_TOKEN`.
 5. En esa misma pantalla, verás el **Identificador del número de teléfono** (Phone Number ID).
    -> Pégalo en tu `.env` como `WA_PHONE_NUMBER_ID`.
+6. Copia también el **App Secret** de la aplicación y guárdalo como `WA_APP_SECRET`. El backend lo usa para validar `x-hub-signature-256` y rechazar peticiones falsificadas.
 
-## 3. Configuración del Webhook y el Verify Token
+## 3. Inicialización del primer usuario CRM
+
+Antes de usar las rutas CRM, configura en `.env` dos secretos distintos:
+
+```env
+JWT_SECRET="una_clave_larga_y_aleatoria_para_jwt"
+CRM_BOOTSTRAP_TOKEN="otro_token_largo_y_aleatorio"
+```
+
+Con el backend iniciado, ejecuta una sola vez una petición a `POST /api/crm/auth/bootstrap`:
+
+```json
+{
+  "name": "Administrador",
+  "email": "admin@mudanzaschico.com",
+  "password": "UnaClaveSeguraDe12Caracteres!",
+  "bootstrapToken": "el_valor_de_CRM_BOOTSTRAP_TOKEN"
+}
+```
+
+La respuesta contiene un JWT temporal para acceder al CRM. El endpoint se bloquea permanentemente después de crear el primer usuario.
+
+## 4. Configuración del Webhook y el Verify Token
 El Webhook es la forma en que WhatsApp le avisa a nuestro servidor que llegó un nuevo mensaje.
 
 **El "Verify Token" (Token de Verificación):**

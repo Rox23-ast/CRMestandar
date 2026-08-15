@@ -15,23 +15,142 @@ datasource db {
 // ----------------------------------------------------------------------------
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String   // Hashed password
-  name      String
-  role      String   @default("AGENT") // Roles: ADMIN, AGENT
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                     String                   @id @default(uuid())
+  email                  String                   @unique
+  password               String // Hashed password
+  name                   String
+  role                   String                   @default("AGENT") // Roles: ADMIN, MARKETING_DIRECTOR, AGENT
+  availabilityStatus     String                   @default("AVAILABLE") // AVAILABLE, BUSY, AWAY, OFFLINE
+  maxActiveConversations Int                      @default(20)
+  lastAssignedAt         DateTime?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  assignedConversations  Conversation[]           @relation("ConversationAssignee")
+  assignmentTargets      ConversationAssignment[] @relation("AssignmentTarget")
+  assignmentActors       ConversationAssignment[] @relation("AssignmentActor")
+  auditEvents            AuditEvent[]
+  notifications          Notification[]
 }
 
 model Client {
+  id            String         @id @default(uuid())
+  phone         String         @unique // WhatsApp Phone
+  name          String?
+  botStep       String         @default("START") // Conversation state tracker
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  quotes        Quote[]
+  conversations Conversation[]
+}
+
+// ----------------------------------------------------------------------------
+// CRM Conversation Models
+// ----------------------------------------------------------------------------
+
+model Conversation {
+  id                 String                   @id @default(uuid())
+  clientId           String
+  client             Client                   @relation(fields: [clientId], references: [id])
+  assignedUserId     String?
+  assignedUser       User?                    @relation("ConversationAssignee", fields: [assignedUserId], references: [id])
+  assignedRole       String?
+  status             String                   @default("BOT_ACTIVE") // NEW, BOT_ACTIVE, HUMAN_ACTIVE, WAITING_CUSTOMER, RESOLVED, CLOSED
+  priority           String                   @default("NORMAL") // URGENT, HIGH, NORMAL, LOW
+  lastMessageAt      DateTime                 @default(now())
+  firstResponseDueAt DateTime?
+  nextFollowUpAt     DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  messages           Message[]
+  assignments        ConversationAssignment[]
+  auditEvents        AuditEvent[]
+  notifications      Notification[]
+
+  @@index([status, priority, lastMessageAt])
+  @@index([assignedUserId, status])
+  @@index([clientId, status])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  externalId     String?      @unique
+  direction      String // INBOUND, OUTBOUND
+  senderType     String // CUSTOMER, BOT, AGENT
+  type           String       @default("TEXT") // TEXT, IMAGE, DOCUMENT, AUDIO, UNSUPPORTED
+  body           String?
+  mediaId        String?
+  deliveryStatus String       @default("RECEIVED") // RECEIVED, PENDING, SENT, DELIVERED, READ, FAILED
+  metadata       String       @default("{}")
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model ConversationAssignment {
+  id               String       @id @default(uuid())
+  conversationId   String
+  conversation     Conversation @relation(fields: [conversationId], references: [id])
+  assignedUserId   String?
+  assignedUser     User?        @relation("AssignmentTarget", fields: [assignedUserId], references: [id])
+  assignedRole     String?
+  assignedByUserId String?
+  assignedByUser   User?        @relation("AssignmentActor", fields: [assignedByUserId], references: [id])
+  reason           String
+  assignedAt       DateTime     @default(now())
+  releasedAt       DateTime?
+
+  @@index([conversationId, assignedAt])
+  @@index([assignedUserId, releasedAt])
+}
+
+model AuditEvent {
+  id             String        @id @default(uuid())
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  actorUserId    String?
+  actorUser      User?         @relation(fields: [actorUserId], references: [id])
+  eventType      String
+  payload        String        @default("{}")
+  createdAt      DateTime      @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model Notification {
+  id             String        @id @default(uuid())
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id])
+  role           String?
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  type           String
+  title          String
+  body           String
+  readAt         DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@index([role, readAt, createdAt])
+}
+
+model BusinessHoursConfig {
+  id             String   @id @default("default")
+  timezone       String   @default("America/Bogota")
+  weeklySchedule String   @default("{\"0\":null,\"1\":{\"start\":\"08:00\",\"end\":\"18:00\"},\"2\":{\"start\":\"08:00\",\"end\":\"18:00\"},\"3\":{\"start\":\"08:00\",\"end\":\"18:00\"},\"4\":{\"start\":\"08:00\",\"end\":\"18:00\"},\"5\":{\"start\":\"08:00\",\"end\":\"18:00\"},\"6\":null}")
+  updatedAt      DateTime @updatedAt
+}
+
+model BusinessHoursException {
   id        String   @id @default(uuid())
-  phone     String   @unique // WhatsApp Phone
-  name      String?
-  botStep   String   @default("START") // Conversation state tracker
+  date      String   @unique // YYYY-MM-DD in the configured timezone
+  isOpen    Boolean  @default(false)
+  startTime String?
+  endTime   String?
+  reason    String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  quotes    Quote[]
 }
 
 // ----------------------------------------------------------------------------
@@ -54,14 +173,14 @@ model BotConfig {
 // ----------------------------------------------------------------------------
 
 model Quote {
-  id          String      @id @default(uuid())
+  id          String   @id @default(uuid())
   clientId    String
-  client      Client      @relation(fields: [clientId], references: [id])
+  client      Client   @relation(fields: [clientId], references: [id])
   origin      String
   destination String
-  volume      Float?      // In cubic meters
+  volume      Float? // In cubic meters
   price       Float?
-  status      String      @default("PENDING") // Status: PENDING, ACCEPTED, REJECTED
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  status      String   @default("PENDING") // Status: PENDING, ACCEPTED, REJECTED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
