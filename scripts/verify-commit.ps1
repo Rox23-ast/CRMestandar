@@ -18,7 +18,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "CRITICAL: Project compilation failed or warnings were detected. Commit aborted." -ForegroundColor Red
     exit 1
 }
-Write-Host "✓ Build compiled successfully with 0 warnings/errors." -ForegroundColor Green
+Write-Host "Build compiled successfully with 0 warnings/errors." -ForegroundColor Green
 
 
 # ---------------------------------------------------------
@@ -33,7 +33,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "CRITICAL: One or more unit tests failed. Commit aborted." -ForegroundColor Red
     exit 1
 }
-Write-Host "✓ All unit tests passed successfully." -ForegroundColor Green
+Write-Host "All unit tests passed successfully." -ForegroundColor Green
 
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host " SUCCESS: Quality gates passed. Commit allowed." -ForegroundColor Green
