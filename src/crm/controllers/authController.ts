@@ -41,6 +41,7 @@ export const bootstrapAdmin = async (req: Request, res: Response) => {
     const user = await prisma.$transaction(async (tx) => {
       // Creating this singleton inside the transaction makes bootstrap one-time under concurrent requests.
       await tx.bootstrapState.create({ data: { id: 'default' } });
+      if (await tx.user.count() > 0) throw new Error('USERS_ALREADY_EXIST');
       return tx.user.create({
         data: {
           email: parsed.data.email.toLowerCase(),
