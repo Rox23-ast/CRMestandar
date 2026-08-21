@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
+import type { FormEvent } from 'react'
 import axios from 'axios'
 import CrmInbox from './CrmInbox'
+import CredentialsSettings from './CredentialsSettings'
 import { 
   MessageSquare, 
   ShieldAlert, 
@@ -8,7 +10,13 @@ import {
   Bot,
   Zap,
   Plus,
-  Trash2
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  Key,
+  Inbox,
+  CircleUserRound,
+  LogIn
 } from 'lucide-react'
 
 // Define the shape of our config
@@ -27,9 +35,13 @@ interface BotConfig {
   customRules: CustomRule[]
 }
 
+const API_URL = import.meta.env.VITE_API_URL ?? ''
+
 function App() {
-  const [activePanel, setActivePanel] = useState<'bot' | 'crm'>('bot')
-  const [activeTab, setActiveTab] = useState<'messages' | 'personality' | 'rules' | 'dynamic'>('messages')
+  const [activePanel, setActivePanel] = useState<'crm' | 'config'>('crm')
+  const isCrmActive = activePanel === 'crm';
+  const [activeTab, setActiveTab] = useState<'messages' | 'personality' | 'rules' | 'dynamic' | 'credentials'>('messages')
+  const [configGroupOpen, setConfigGroupOpen] = useState(true)
   const [config, setConfig] = useState<BotConfig>({
     greetingMessage: '',
     awayMessage: '',
@@ -40,12 +52,36 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{show: boolean, message: string}>({show: false, message: ''})
+  
+  // Auth state
+  const [token, setToken] = useState(() => sessionStorage.getItem('crm_token') ?? '')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [crmUserRole, setCrmUserRole] = useState<string>('')
+
+  useEffect(() => {
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]))
+        setCrmUserRole(payload.role || '')
+      } catch {}
+    } else {
+      setCrmUserRole('')
+    }
+  }, [token])
 
   useEffect(() => {
     // Fetch initial config
     const fetchConfig = async () => {
+      if (!token) {
+        setLoading(false)
+        return
+      }
       try {
-        const response = await axios.get('http://localhost:3000/api/bot/config')
+        const response = await axios.get(`${API_URL}/api/bot/config`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         const data = response.data
         // Asegurarnos que customRules sea un array
         if (!data.customRules) data.customRules = []
@@ -57,7 +93,24 @@ function App() {
       }
     }
     fetchConfig()
-  }, [])
+  }, [token])
+
+  const handleLogin = async (event: FormEvent) => {
+    event.preventDefault()
+    setLoginError('')
+    try {
+      const response = await axios.post(`${API_URL}/api/crm/auth/login`, { email, password })
+      sessionStorage.setItem('crm_token', response.data.token)
+      setToken(response.data.token)
+    } catch {
+      setLoginError('Credenciales inválidas o usuario no configurado.')
+    }
+  }
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('crm_token')
+    setToken('')
+  }
 
   const handleAddRule = () => {
     const newRule: CustomRule = {
@@ -86,7 +139,7 @@ function App() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await axios.put('http://localhost:3000/api/bot/config', config)
+      await axios.put(`${API_URL}/api/bot/config`, config)
       setToast({ show: true, message: 'Configuración guardada exitosamente' })
       setTimeout(() => setToast({ show: false, message: '' }), 3000)
     } catch (error) {
@@ -103,11 +156,55 @@ function App() {
     setConfig(prev => ({ ...prev, [name]: value }))
   }
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-neutral-light text-primary">Cargando...</div>
+  const getHeaderTitle = () => {
+    if (activePanel === 'config') {
+      switch (activeTab) {
+        case 'messages': return 'Mensajes y Textos';
+        case 'personality': return 'Personalidad IA';
+        case 'dynamic': return 'Respuestas Rápidas';
+        case 'rules': return 'Reglas y Límites';
+        case 'credentials': return 'Configuración de APIs';
+      }
+    }
+    return 'Bandeja CRM';
+  };
+
+  const getHeaderSubtitle = () => {
+    if (activePanel === 'config') {
+      switch (activeTab) {
+        case 'messages': return 'Configura los mensajes que el bot envía a los clientes';
+        case 'personality': return 'Define la personalidad y comportamiento de la IA';
+        case 'dynamic': return 'Configura respuestas automáticas por palabras clave';
+        case 'rules': return 'Define límites y restricciones para el bot';
+        case 'credentials': return 'Gestiona credenciales de WhatsApp y OpenAI';
+      }
+    }
+    return 'Seguimiento de conversaciones y clientes';
+  };
+
+  if (!token) {
+    return (
+      <div className="min-h-screen bg-neutral-light flex items-center justify-center p-6 font-raleway">
+        <form onSubmit={handleLogin} className="w-full max-w-md bg-white rounded-xl border border-neutral-gray shadow-sm p-8 space-y-5">
+          <div className="flex items-center gap-3 text-primary">
+            <CircleUserRound className="w-8 h-8" />
+            <div>
+              <h2 className="font-cormorant text-3xl">Acceso CRM</h2>
+              <p className="text-xs text-neutral-darkgray">Bandeja de seguimiento de Mudanzas Chico</p>
+            </div>
+          </div>
+          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required placeholder="Correo" className="w-full border border-neutral-gray rounded-md p-3" />
+          <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required placeholder="Contraseña" className="w-full border border-neutral-gray rounded-md p-3" />
+          {loginError && <p className="text-sm text-red-600">{loginError}</p>}
+          <button className="w-full bg-primary text-white rounded-md py-3 flex items-center justify-center gap-2"><LogIn className="w-4 h-4" />Ingresar</button>
+        </form>
+      </div>
+    )
   }
 
-  if (activePanel === 'crm') return <CrmInbox onBack={() => setActivePanel('bot')} />
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center bg-neutral-light text-primary">Cargando...</div>;
+  }
 
   return (
     <div className="flex min-h-screen bg-neutral-light font-raleway">
@@ -116,63 +213,104 @@ function App() {
       <aside className="w-64 bg-primary text-white flex flex-col">
         <div className="p-6 flex flex-col items-center border-b border-primary-light">
           <div className="w-40 mb-4 flex justify-center">
-            <img src="/logo-1.png" alt="Mudanzas Chico Logo" className="max-w-full h-auto object-contain" />
+            <img src={`${import.meta.env.BASE_URL}logo-1.png`} alt="Mudanzas Chico Logo" className="max-w-full h-auto object-contain" />
           </div>
           <h1 className="font-cormorant text-2xl font-medium tracking-wide text-center">Mudanzas Chico</h1>
         </div>
         
-        <nav className="flex-1 px-4 py-6 space-y-2">
-          <button
-            onClick={() => setActivePanel('crm')}
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-neutral-gray hover:bg-primary-light/50"
-          >
-            <MessageSquare className="w-5 h-5" />
-            <span>Bandeja CRM</span>
-          </button>
+        <nav className="flex-1 px-4 py-6 space-y-4 overflow-y-auto">
+          {/* CRM Group */}
+          <div>
+            <p className="px-4 py-2 text-xs uppercase tracking-wider text-neutral-gray">CRM</p>
+            <button
+              onClick={() => { setActivePanel('crm'); setActiveTab('messages'); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${
+                isCrmActive ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
+              }`}
+            >
+              <Inbox className="w-5 h-5" />
+              <span>Bandeja CRM</span>
+            </button>
+          </div>
 
-          <button 
-            onClick={() => setActiveTab('messages')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${activeTab === 'messages' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'}`}
-          >
-            <MessageSquare className="w-5 h-5" />
-            <span>Mensajes y Textos</span>
-          </button>
-          
-          <button 
-            onClick={() => setActiveTab('personality')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${activeTab === 'personality' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'}`}
-          >
-            <Bot className="w-5 h-5" />
-            <span>Personalidad IA</span>
-          </button>
-          
-          <button 
-            onClick={() => setActiveTab('dynamic')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${activeTab === 'dynamic' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'}`}
-          >
-            <Zap className="w-5 h-5" />
-            <span>Respuestas Rápidas</span>
-          </button>
-          
-          <button 
-            onClick={() => setActiveTab('rules')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${activeTab === 'rules' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'}`}
-          >
-            <ShieldAlert className="w-5 h-5" />
-            <span>Reglas y Límites</span>
-          </button>
+          {/* Configuración del Chatbot Group */}
+          <div>
+            <button
+              onClick={() => setConfigGroupOpen(!configGroupOpen)}
+              className="w-full flex items-center justify-between px-4 py-2 text-xs uppercase tracking-wider text-neutral-gray hover:text-white transition-colors"
+            >
+              <span>Configuración del Chatbot</span>
+              {configGroupOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </button>
+            
+            {configGroupOpen && (
+              <div className="space-y-1 pl-2 mt-1 border-l border-primary-light">
+                <button 
+                  onClick={() => { setActivePanel('config'); setActiveTab('messages'); }}
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
+                    activePanel === 'config' && activeTab === 'messages' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
+                  }`}
+                >
+                  <MessageSquare className="w-5 h-5" />
+                  <span>Mensajes y Textos</span>
+                </button>
+                
+                <button 
+                  onClick={() => { setActivePanel('config'); setActiveTab('personality'); }}
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
+                    activePanel === 'config' && activeTab === 'personality' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
+                  }`}
+                >
+                  <Bot className="w-5 h-5" />
+                  <span>Personalidad IA</span>
+                </button>
+                
+                <button 
+                  onClick={() => { setActivePanel('config'); setActiveTab('dynamic'); }}
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
+                    activePanel === 'config' && activeTab === 'dynamic' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
+                  }`}
+                >
+                  <Zap className="w-5 h-5" />
+                  <span>Respuestas Rápidas</span>
+                </button>
+                
+                <button 
+                  onClick={() => { setActivePanel('config'); setActiveTab('rules'); }}
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
+                    activePanel === 'config' && activeTab === 'rules' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
+                  }`}
+                >
+                  <ShieldAlert className="w-5 h-5" />
+                  <span>Reglas y Límites</span>
+                </button>
+                
+                <button 
+                  onClick={() => { setActivePanel('config'); setActiveTab('credentials'); }}
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
+                    activePanel === 'config' && activeTab === 'credentials' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
+                  }`}
+                >
+                  <Key className="w-5 h-5" />
+                  <span>Configuración de APIs</span>
+                </button>
+              </div>
+            )}
+          </div>
         </nav>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col">
-        
-        {/* Header */}
-        <header className="bg-white border-b border-neutral-gray px-8 py-6 flex justify-between items-center sticky top-0 z-10">
-          <div>
-            <h2 className="text-2xl font-cormorant text-primary font-medium">Configuración del Chatbot</h2>
-            <p className="text-sm text-neutral-darkgray italic mt-1">"Movemos lo que más Importa."</p>
-          </div>
+  <main className="flex-1 flex flex-col">
+    
+    {/* Header */}
+    <header className="bg-white border-b border-neutral-gray px-8 py-6 flex justify-between items-center sticky top-0 z-10">
+      <div>
+        <h2 className="text-2xl font-cormorant text-primary font-medium">{getHeaderTitle()}</h2>
+        <p className="text-sm text-neutral-darkgray italic mt-1">{getHeaderSubtitle()}</p>
+      </div>
+      <div className="flex items-center gap-4">
+        {activePanel === 'config' && activeTab !== 'credentials' && (
           <button 
             onClick={handleSave}
             disabled={saving}
@@ -181,11 +319,17 @@ function App() {
             <Save className="w-4 h-4" />
             <span>{saving ? 'Guardando...' : 'Guardar Cambios'}</span>
           </button>
-        </header>
+        )}
+        <button onClick={handleLogout} className="text-neutral-darkgray hover:text-primary transition-colors text-sm font-medium">Salir</button>
+      </div>
+    </header>
 
-        {/* Content Area */}
-        <div className="flex-1 p-8 max-w-4xl">
-          
+    {/* Content Area */}
+    <div className="flex-1 overflow-hidden flex flex-col">
+      {activePanel === 'crm' ? (
+        <CrmInbox token={token} />
+      ) : (
+        <div className="p-8 max-w-4xl overflow-y-auto w-full mx-auto">
           {/* Toast Notification */}
           {toast.show && (
             <div className="fixed top-24 right-8 bg-primary text-white px-6 py-3 rounded shadow-lg animate-fade-in-down z-50">
@@ -361,11 +505,18 @@ function App() {
               </div>
             )}
 
+            {/* Tab 5: Credentials */}
+            {activeTab === 'credentials' && (
+              <CredentialsSettings userRole={crmUserRole} />
+            )}
+
           </div>
         </div>
-      </main>
+      )}
     </div>
-  )
+  </main>
+</div>
+)
 }
 
 export default App

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { CircleUserRound, Inbox, LogIn, MessageCircle, Send, UserCheck } from 'lucide-react'
+import { MessageCircle, Send, UserCheck } from 'lucide-react'
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
+const API_URL = import.meta.env.VITE_API_URL ?? ''
 
 type Conversation = {
   id: string
@@ -46,11 +46,7 @@ const priorityLabels: Record<string, string> = {
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` })
 
-export default function CrmInbox({ onBack }: { onBack: () => void }) {
-  const [token, setToken] = useState(() => sessionStorage.getItem('crm_token') ?? '')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loginError, setLoginError] = useState('')
+export default function CrmInbox({ token }: { token: string }) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selected, setSelected] = useState<ConversationDetail | null>(null)
   const [draft, setDraft] = useState('')
@@ -100,18 +96,6 @@ export default function CrmInbox({ onBack }: { onBack: () => void }) {
     return () => controller.abort()
   }, [token])
 
-  const handleLogin = async (event: FormEvent) => {
-    event.preventDefault()
-    setLoginError('')
-    try {
-      const response = await axios.post(`${API_URL}/api/crm/auth/login`, { email, password })
-      sessionStorage.setItem('crm_token', response.data.token)
-      setToken(response.data.token)
-    } catch {
-      setLoginError('Credenciales inválidas o usuario no configurado.')
-    }
-  }
-
   const handleTake = async () => {
     if (!selected) return
     await axios.post(`${API_URL}/api/crm/conversations/${selected.id}/claim`, {}, { headers: authHeaders(token) })
@@ -140,44 +124,28 @@ export default function CrmInbox({ onBack }: { onBack: () => void }) {
     }
   }
 
-  if (!token) {
-    return (
-      <div className="min-h-screen bg-neutral-light flex items-center justify-center p-6">
-        <form onSubmit={handleLogin} className="w-full max-w-md bg-white rounded-xl border border-neutral-gray shadow-sm p-8 space-y-5">
-          <div className="flex items-center gap-3 text-primary">
-            <CircleUserRound className="w-8 h-8" />
-            <div>
-              <h2 className="font-cormorant text-3xl">Acceso CRM</h2>
-              <p className="text-xs text-neutral-darkgray">Bandeja de seguimiento de Mudanzas Chico</p>
-            </div>
-          </div>
-          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required placeholder="Correo" className="w-full border border-neutral-gray rounded-md p-3" />
-          <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required placeholder="Contraseña" className="w-full border border-neutral-gray rounded-md p-3" />
-          {loginError && <p className="text-sm text-red-600">{loginError}</p>}
-          <button className="w-full bg-primary text-white rounded-md py-3 flex items-center justify-center gap-2"><LogIn className="w-4 h-4" />Ingresar</button>
-        </form>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen bg-neutral-light flex flex-col">
-      <header className="bg-primary text-white px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3"><Inbox className="w-6 h-6" /><h1 className="font-cormorant text-3xl">Bandeja CRM</h1></div>
-        <div className="flex items-center gap-4 text-sm"><span>{unread} notificaciones nuevas</span><button onClick={onBack} className="text-neutral-gray hover:text-white">Configuración del bot</button><button onClick={() => { sessionStorage.removeItem('crm_token'); setToken('') }} className="text-neutral-gray hover:text-white">Salir</button></div>
-      </header>
-      {error && <div className="bg-red-50 text-red-700 px-6 py-3 text-sm">{error}</div>}
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] max-w-[1600px] w-full mx-auto">
-        <section className="bg-white border-r border-neutral-gray overflow-y-auto">
-          <div className="p-4 border-b border-neutral-gray"><p className="text-xs uppercase tracking-wider text-neutral-darkgray">Conversaciones</p><p className="text-sm text-primary mt-1">{conversations.length} activas</p></div>
+    <div className="flex-1 flex flex-col overflow-hidden relative bg-neutral-light">
+      {error && <div className="bg-red-50 text-red-700 px-6 py-3 text-sm flex-shrink-0">{error}</div>}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] w-full mx-auto overflow-hidden">
+        <section className="bg-white border-r border-neutral-gray flex flex-col h-full overflow-hidden">
+          <div className="p-4 border-b border-neutral-gray flex-shrink-0 flex justify-between items-center">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-neutral-darkgray">Conversaciones</p>
+              <p className="text-sm text-primary mt-1">{conversations.length} activas</p>
+            </div>
+            {unread > 0 && <span className="bg-secondary text-white text-xs px-2 py-1 rounded-full">{unread} nuevas</span>}
+          </div>
+          <div className="flex-1 overflow-y-auto">
           {conversations.map((conversation) => (
             <button key={conversation.id} onClick={() => void loadConversation(conversation.id)} className={`w-full text-left p-4 border-b border-neutral-gray hover:bg-neutral-light ${selected?.id === conversation.id ? 'bg-secondary/20 border-l-4 border-l-accent-gold' : ''}`}>
               <div className="flex justify-between gap-2"><strong className="text-primary truncate">{conversation.client.name || conversation.client.phone}</strong><span className="text-[11px] text-neutral-darkgray">{priorityLabels[conversation.priority]}</span></div>
               <div className="flex justify-between mt-2 text-xs text-neutral-darkgray"><span>{statusLabels[conversation.status] || conversation.status}</span><span>{conversation.assignedUser?.name || 'Marketing'}</span></div>
             </button>
           ))}
+          </div>
         </section>
-        <section className="flex flex-col min-h-[600px]">
+        <section className="flex flex-col h-full overflow-hidden">
           {!selected ? (
             <div className="flex-1 flex items-center justify-center text-neutral-darkgray"><div className="text-center"><MessageCircle className="w-12 h-12 mx-auto mb-3 text-secondary" /><p>Selecciona una conversación para ver el historial.</p></div></div>
           ) : (
@@ -188,7 +156,7 @@ export default function CrmInbox({ onBack }: { onBack: () => void }) {
             </>
           )}
         </section>
-      </main>
+      </div>
     </div>
   )
 }

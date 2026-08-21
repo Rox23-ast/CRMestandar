@@ -83,5 +83,63 @@ Las rutas CRM, excepto `auth/bootstrap` y `auth/login`, requieren un JWT Bearer 
 - **Testing:** Se utiliza `jest` (y `ts-jest`) para pruebas unitarias. Cada nueva funcionalidad en el `core` y módulos críticos debe estar cubierta por tests.
 - **Panel CRM inicial:** `frontend/src/CrmInbox.tsx` incluye login JWT, bandeja, historial, toma de control, reactivación del bot, respuesta por WhatsApp y consumo autenticado de SSE.
 
+## 6. Despliegue del Panel Web
+
+El despliegue Docker usa una etapa independiente para instalar las dependencias del frontend y ejecutar `npm run build` dentro de `frontend/`. La imagen de producción copia `frontend/dist` a `/app/public`, y Express sirve esos archivos estáticos desde `src/index.ts` mediante `express.static` bajo la ruta `/crm`. La raíz del servidor (`http://ip:puerto/`) redirige con `301` a `/crm/`, que actúa como ruta principal del panel, y `/crm` sin barra final se canonicaliza a `/crm/`. De esta forma, el panel React y la API se entregan desde el mismo contenedor y detrás del proxy Nginx. Las imágenes de backend usan Node.js 22, compatible con `openai`, e instalan OpenSSL para que Prisma seleccione y ejecute correctamente su engine nativo sobre Alpine.
+
+## 7. Gestión de Credenciales de APIs (Configuración del Chatbot)
+
+Se añadió la capacidad de configurar credenciales de WhatsApp Business API y OpenAI directamente desde el panel CRM, eliminando la necesidad de editar variables de entorno manualmente.
+
+### 7.1 Variables Configurables
+
+- `WA_API_TOKEN` — Token de acceso permanente de WhatsApp Business API
+- `WA_VERIFY_TOKEN` — Token de verificación del webhook de Meta
+- `WA_PHONE_NUMBER_ID` — ID del número de teléfono de WhatsApp Business
+- `WA_APP_SECRET` — Secret de la aplicación de Meta Developers
+- `OPENAI_API_KEY` — Clave de API de OpenAI para el asistente de IA
+
+**Excluidas** (infraestructura/seguridad): `DATABASE_URL`, `JWT_SECRET`, `CRM_BOOTSTRAP_TOKEN`, `PORT`, `NODE_ENV`.
+
+### 7.2 Almacenamiento Seguro
+
+- Nueva entidad Prisma `StoredCredential` (singleton con `id: "default"`).
+- Cifrado AES-256-GCM usando `crypto` nativo de Node.js.
+- Clave maestra de 32 bytes desde `CREDENTIALS_ENCRYPTION_KEY` (64 hex chars).
+- En la BD se guardan: `data` (ciphertext base64), `iv` (base64), `tag` (auth tag base64).
+- El backend **nunca devuelve valores en claro** tras el guardado; el endpoint `GET /api/crm/settings/credentials` retorna solo valores enmascarados (primeros 4 y últimos 4 caracteres).
+
+### 7.3 Permisos
+
+- Solo usuarios con rol `ADMIN` pueden ver y editar la sección **Configuración de APIs**.
+- Usuarios `AGENT` y `MARKETING_DIRECTOR` no ven esta opción en la sidebar.
+- Middleware `requireCrmRole('ADMIN')` protege ambos endpoints (`GET` y `PUT`).
+
+### 7.4 Migración Inicial Automática
+
+Al arrancar el servidor (`src/index.ts`), si la tabla `StoredCredential` está vacía, se ejecuta `seedFromEnv()` que:
+1. Lee las 5 variables del `.env` actual.
+2. Si alguna tiene valor, cifra y crea el registro singleton.
+3. Evita sobrescribir credenciales ya guardadas por el usuario.
+
+### 7.5 API Endpoints
+
+- `GET /api/crm/settings/credentials` — Retorna credenciales enmascaradas (requiere `ADMIN`).
+- `PUT /api/crm/settings/credentials` — Actualiza credenciales (body parcial, requiere `ADMIN`).
+
+### 7.6 Frontend
+
+- Nueva vista `CredentialsSettings.tsx` integrada en `App.tsx`.
+- Sidebar reorganizada en dos grupos:
+  - **CRM** → *Bandeja CRM* (pantalla por defecto).
+  - **Configuración del Chatbot** (acordeón colapsable) → *Mensajes y Textos*, *Personalidad IA*, *Respuestas Rápidas*, *Reglas y Límites*, *Configuración de APIs*.
+- Cada campo muestra valor enmascarado con botón "Mostrar/ocultar" y botón "Guardar" individual.
+- Solo visible para usuarios `ADMIN`; otros roles ven mensaje de acceso restringido.
+
 ---
+
+## 8. Estructura de la Base de Datos
+
+Para documentar el esquema real de la base de datos se dispone del script `scripts/dump-db-schema.mjs`, ejecutable con `npm run db:schema`. El script consulta `sqlite_master` mediante Prisma (tablas, índices y triggers, excluyendo objetos internos de SQLite y `_prisma_migrations`) y escribe el DDL completo en `docs/db-structure.sql`, un archivo versionable que refleja la estructura vigente sin datos.
+
 *Nota para los Agentes IA: Este documento debe actualizarse cada vez que se cree un nuevo módulo, tabla en la base de datos o se cambie la lógica de negocio fundamental.*

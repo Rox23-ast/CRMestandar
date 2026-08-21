@@ -1,0 +1,34 @@
+# Version control
+.git
+.gitignore
+.agents
+.opencode
+.claude
+
+# Dependencies (reinstalled per stage inside the image)
+node_modules
+frontend/node_modules
+
+# Build output
+dist
+public
+frontend/dist
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local SQLite databases
+*.db
+*.db-journal
+
+# Local debug / utility scripts
+check-db.mjs
+check-users.mjs
+reset-password.mjs
+login-test.json
+
+# Documentation and tooling not needed at runtime
+docs
+Git-Hooks

@@ -165,6 +165,15 @@ model BootstrapState {
   completedAt DateTime?
 }
 
+model StoredCredential {
+  id        String   @id @default("default")
+  data      String
+  iv        String
+  tag       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // ----------------------------------------------------------------------------
 // Bot Configuration Models
 // ----------------------------------------------------------------------------

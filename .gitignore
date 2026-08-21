@@ -149,3 +149,11 @@ TestResults/
 # ------------------------------------------
 *.db
 *.db-journal
+
+# ------------------------------------------
+# Local debug / utility scripts
+# ------------------------------------------
+check-db.mjs
+check-users.mjs
+reset-password.mjs
+login-test.json

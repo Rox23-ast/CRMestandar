@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireCrmUser, requireCrmRole } from '../core/auth/authMiddleware';
 import { bootstrapAdmin, createUser, login } from './controllers/authController';
+import { getApiCredentials, updateApiCredentials } from './controllers/credentialController';
 import {
   assignConversation,
   claimConversation,
@@ -27,6 +28,8 @@ crmRouter.post('/auth/bootstrap', bootstrapAdmin);
 crmRouter.post('/auth/login', login);
 crmRouter.use(requireCrmUser);
 crmRouter.post('/auth/users', requireCrmRole('ADMIN'), createUser);
+crmRouter.get('/settings/credentials', requireCrmRole('ADMIN'), getApiCredentials);
+crmRouter.put('/settings/credentials', requireCrmRole('ADMIN'), updateApiCredentials);
 crmRouter.get('/conversations', listConversations);
 crmRouter.get('/conversations/:id', getConversation);
 crmRouter.post('/conversations/:id/claim', claimConversation);
