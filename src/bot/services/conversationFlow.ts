@@ -117,6 +117,12 @@ export const processIncomingMessage = async (
     if (!text) return;
 
     const parsedRules = JSON.parse(botConfig.customRules);
+    const ruleResponse = matchQuickResponse(text, parsedRules, conversation.client?.name);
+    if (ruleResponse) {
+      await sendAndRecordBotMessage(conversation.id, fromPhone, ruleResponse);
+      return;
+    }
+
     const aiResponse = await processMessageWithAI(
       text,
       botConfig.aiPersonalityPrompt,
@@ -129,6 +135,25 @@ export const processIncomingMessage = async (
   } catch (error) {
     console.error('Error en el flujo de conversación:', error);
   }
+};
+
+interface QuickResponseRule {
+  keywords?: string;
+  response?: string;
+}
+
+const matchQuickResponse = (text: string, rules: QuickResponseRule[], clientName?: string | null): string | undefined => {
+  const normalized = text.toLowerCase();
+  const rule = rules.find((r) => {
+    if (!r.keywords || !r.response) return false;
+    const keywords = r.keywords
+      .split(',')
+      .map((k) => k.trim().toLowerCase())
+      .filter(Boolean);
+    return keywords.some((k) => normalized.includes(k));
+  });
+  if (!rule?.response) return undefined;
+  return rule.response.replace(/\[Nombre\]/g, clientName || '').trim();
 };
 
 const updateClientStep = async (phone: string, step: string) => {
