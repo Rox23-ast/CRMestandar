@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { getRawCredentials } from '../../crm/services/credentialService';
 
 /**
  * Servicio encargado de gestionar la integración con OpenAI.
@@ -26,14 +27,16 @@ export const processMessageWithAI = async (
       "\n\n";
   }
   
-  if (!process.env.OPENAI_API_KEY) {
+  const apiKey = (await getRawCredentials()).OPENAI_API_KEY;
+
+  if (!apiKey) {
     console.warn("⚠️ [AI Engine] No se encontró OPENAI_API_KEY. Usando fallback Mock NLP.");
     return mockNLP(userMessage);
   }
 
   try {
-    // Inicializar OpenAI (usa process.env.OPENAI_API_KEY por defecto)
-    const openai = new OpenAI();
+    // Inicializar OpenAI con la API key configurada (DB primero, luego .env)
+    const openai = new OpenAI({ apiKey });
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini", // Utilizamos gpt-4o-mini por ser más rápido y económico para este tipo de tareas

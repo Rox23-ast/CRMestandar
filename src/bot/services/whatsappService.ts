@@ -2,12 +2,15 @@
  * Servicio para interactuar con la Graph API de WhatsApp
  */
 
+import { getRawCredentials } from '../../crm/services/credentialService';
+
 export const sendWhatsAppMessage = async (to: string, message: string): Promise<boolean> => {
-  const token = process.env.WA_API_TOKEN;
-  const phoneNumberId = process.env.WA_PHONE_NUMBER_ID;
+  const creds = await getRawCredentials();
+  const token = creds.WA_API_TOKEN;
+  const phoneNumberId = creds.WA_PHONE_NUMBER_ID;
 
   if (!token || !phoneNumberId) {
-    console.error("Faltan las credenciales de WhatsApp en el archivo .env (WA_API_TOKEN o WA_PHONE_NUMBER_ID)");
+    console.error("Faltan las credenciales de WhatsApp (WA_API_TOKEN o WA_PHONE_NUMBER_ID)");
     return false;
   }
 

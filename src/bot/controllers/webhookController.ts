@@ -2,13 +2,14 @@ import crypto from 'node:crypto';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { processIncomingMessage } from '../services/conversationFlow';
+import { getRawCredentials } from '../../crm/services/credentialService';
 
 interface RawBodyRequest extends Request {
   rawBody?: Buffer;
 }
 
-const isValidMetaSignature = (req: RawBodyRequest) => {
-  const appSecret = process.env.WA_APP_SECRET;
+const isValidMetaSignature = async (req: RawBodyRequest) => {
+  const appSecret = (await getRawCredentials()).WA_APP_SECRET;
   const signature = req.header('x-hub-signature-256');
   if (!appSecret || !signature || !req.rawBody) return false;
 
@@ -40,8 +41,8 @@ const webhookBodySchema = z.object({
  * GET /api/bot/webhook
  * Used by Meta/WhatsApp to verify the configured webhook.
  */
-export const verifyWebhook = (req: Request, res: Response) => {
-  const verifyToken = process.env.WA_VERIFY_TOKEN;
+export const verifyWebhook = async (req: Request, res: Response) => {
+  const verifyToken = (await getRawCredentials()).WA_VERIFY_TOKEN;
 
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -64,7 +65,7 @@ export const verifyWebhook = (req: Request, res: Response) => {
  * Receives messages sent by users through WhatsApp.
  */
 export const receiveMessage = async (req: RawBodyRequest, res: Response) => {
-  if (!isValidMetaSignature(req)) return res.sendStatus(401);
+  if (!(await isValidMetaSignature(req))) return res.sendStatus(401);
 
   // WhatsApp requires a quick 200 response to avoid retries.
   res.sendStatus(200);
