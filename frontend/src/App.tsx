@@ -507,7 +507,7 @@ function App() {
 
             {/* Tab 5: Credentials */}
             {activeTab === 'credentials' && (
-              <CredentialsSettings userRole={crmUserRole} />
+              <CredentialsSettings userRole={crmUserRole} token={token} />
             )}
 
           </div>

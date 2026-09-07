@@ -73,6 +73,7 @@ Las rutas CRM, excepto `auth/bootstrap` y `auth/login`, requieren un JWT Bearer 
 
 - **Flujos de Conversación:** Se implementó una "Máquina de Estados" para el Bot (mediante la columna `botStep` en la tabla de Clientes). Esto permite que el chatbot recuerde la fase del cliente (Ej. `START`, `QUOTE_ORIGIN`, `QUOTE_DESTINATION`, `AGENT_HANDOFF`) sin perder contexto.
 - **Abstracción de IA (OpenAI):** Se integró el SDK oficial de OpenAI (`openai`) en `aiService.ts`. El chatbot utiliza el modelo `gpt-4o-mini` configurado con `response_format: { type: "json_object" }` para asegurar que las respuestas sean estructuradas. Esto permite que el LLM redacte respuestas naturales y extraiga la intención (`intent`) en una sola llamada a la API, optimizando costos y velocidad.
+- **Respuestas Rápidas deterministas:** Las reglas configuradas en *Respuestas Rápidas* (`customRules`) se evalúan por coincidencia de palabras clave (case-insensitive, separadas por coma) antes de llamar a la IA, en `matchQuickResponse()` de `conversationFlow.ts`. Si alguna regla coincide, el bot responde exactamente el texto configurado (con reemplazo de `[Nombre]` si el cliente tiene nombre registrado) sin depender de la disponibilidad o validez de la API de OpenAI. Solo los mensajes sin regla coincidente pasan al LLM.
 
 - **Seguridad en Capa HTTP:** Se utiliza `helmet` para proteger cabeceras y `express-rate-limit` para evitar abusos en los endpoints.
 - **Validación de Webhooks (Meta/WhatsApp):** El GET valida el token de suscripción y el POST valida `x-hub-signature-256` con `WA_APP_SECRET`. El cuerpo original se conserva solo para verificar la firma. Se responde instantáneamente con status 200 después de validar la autenticidad, antes de procesar el mensaje para evitar reintentos de Meta.
@@ -122,6 +123,22 @@ Al arrancar el servidor (`src/index.ts`), si la tabla `StoredCredential` está v
 2. Si alguna tiene valor, cifra y crea el registro singleton.
 3. Evita sobrescribir credenciales ya guardadas por el usuario.
 
+### 7.4.1 Consumidores de Credenciales (DB autoritativa)
+
+Todos los servicios del bot leen las credenciales desde la base de datos cifrada vía `getRawCredentials()`. La semántica es:
+
+- Si el registro `StoredCredential` **no existe**, se devuelven los valores del `.env` (fallback inicial).
+- Si el registro **existe**, sus valores son **autoritativos**: un campo vacío significa "sin configurar" y **no** se vuelve a leer del `.env`. Esto permite deshabilitar una integración (ej. OpenAI) dejando el campo vacío desde el panel.
+
+Consumidores:
+
+- `verifyWebhook` (`GET /api/bot/webhook`): compara `hub.verify_token` contra `WA_VERIFY_TOKEN` de la DB.
+- `isValidMetaSignature` (`POST /api/bot/webhook`): valida `x-hub-signature-256` con `WA_APP_SECRET` de la DB.
+- `sendWhatsAppMessage`: usa `WA_API_TOKEN` y `WA_PHONE_NUMBER_ID` de la DB para enviar por Graph API.
+- `processMessageWithAI`: usa `OPENAI_API_KEY` de la DB para inicializar el cliente de OpenAI; si está vacía, usa el fallback Mock NLP.
+
+Esto garantiza que los cambios hechos desde el panel CRM surtan efecto sin reiniciar el servidor ni editar el `.env`.
+
 ### 7.5 API Endpoints
 
 - `GET /api/crm/settings/credentials` — Retorna credenciales enmascaradas (requiere `ADMIN`).
@@ -134,6 +151,7 @@ Al arrancar el servidor (`src/index.ts`), si la tabla `StoredCredential` está v
   - **CRM** → *Bandeja CRM* (pantalla por defecto).
   - **Configuración del Chatbot** (acordeón colapsable) → *Mensajes y Textos*, *Personalidad IA*, *Respuestas Rápidas*, *Reglas y Límites*, *Configuración de APIs*.
 - Cada campo muestra valor enmascarado con botón "Mostrar/ocultar" y botón "Guardar" individual.
+- El botón "Guardar" solo se habilita cuando el campo fue editado (dirty tracking), evitando guardar el literal enmascarado que se muestra tras cada carga.
 - Solo visible para usuarios `ADMIN`; otros roles ven mensaje de acceso restringido.
 
 ---

@@ -66,7 +66,7 @@ const CREDENTIAL_FIELDS: CredentialField[] = [
   }
 ]
 
-export default function CredentialsSettings({ userRole }: { userRole: string }) {
+export default function CredentialsSettings({ userRole, token }: { userRole: string; token: string }) {
   const [credentials, setCredentials] = useState<ApiCredentials>({
     WA_API_TOKEN: '',
     WA_VERIFY_TOKEN: '',
@@ -89,6 +89,15 @@ export default function CredentialsSettings({ userRole }: { userRole: string }) 
   })
   const [toast, setToast] = useState<{show: boolean, message: string, type: 'success' | 'error'}>({show: false, message: '', type: 'success'})
   const [isAdmin, setIsAdmin] = useState(false)
+  const [edited, setEdited] = useState<Record<keyof ApiCredentials, boolean>>({
+    WA_API_TOKEN: false,
+    WA_VERIFY_TOKEN: false,
+    WA_PHONE_NUMBER_ID: false,
+    WA_APP_SECRET: false,
+    OPENAI_API_KEY: false,
+    ANTHROPIC_API_KEY: false,
+    GEMINI_API_KEY: false
+  })
 
   useEffect(() => {
     setIsAdmin(userRole === 'ADMIN')
@@ -97,8 +106,19 @@ export default function CredentialsSettings({ userRole }: { userRole: string }) 
 
   const fetchCredentials = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/crm/settings/credentials`)
+      const response = await axios.get(`${API_URL}/api/crm/settings/credentials`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
       setCredentials(response.data)
+      setEdited({
+        WA_API_TOKEN: false,
+        WA_VERIFY_TOKEN: false,
+        WA_PHONE_NUMBER_ID: false,
+        WA_APP_SECRET: false,
+        OPENAI_API_KEY: false,
+        ANTHROPIC_API_KEY: false,
+        GEMINI_API_KEY: false
+      })
     } catch (error) {
       console.error('Error fetching credentials:', error)
     } finally {
@@ -109,7 +129,10 @@ export default function CredentialsSettings({ userRole }: { userRole: string }) 
   const handleSave = async (field: keyof ApiCredentials) => {
     setSaving(field)
     try {
-      await axios.put(`${API_URL}/api/crm/settings/credentials`, { [field]: credentials[field] })
+      await axios.put(`${API_URL}/api/crm/settings/credentials`, { [field]: credentials[field] }, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      setEdited(prev => ({ ...prev, [field]: false }))
       setToast({ show: true, message: `${CREDENTIAL_FIELDS.find(f => f.key === field)?.label} guardado`, type: 'success' })
       setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000)
       await fetchCredentials()
@@ -124,6 +147,7 @@ export default function CredentialsSettings({ userRole }: { userRole: string }) 
 
   const handleChange = (field: keyof ApiCredentials, value: string) => {
     setCredentials(prev => ({ ...prev, [field]: value }))
+    setEdited(prev => ({ ...prev, [field]: true }))
   }
 
   const toggleShow = (field: keyof ApiCredentials) => {
@@ -190,7 +214,7 @@ export default function CredentialsSettings({ userRole }: { userRole: string }) 
 
             <button
               onClick={() => handleSave(field.key)}
-              disabled={saving === field.key || !credentials[field.key].trim()}
+              disabled={saving === field.key || !edited[field.key]}
               className="mt-4 flex items-center space-x-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-md transition-colors font-medium disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
