@@ -22,6 +22,7 @@ app.set('trust proxy', 1);
 app.use(helmet({
   crossOriginOpenerPolicy: false,
   crossOriginEmbedderPolicy: false,
+  originAgentCluster: false,
 })); // Protects response headers.
 app.use(cors()); // Enables Cross-Origin Resource Sharing.
 app.use(express.json({
