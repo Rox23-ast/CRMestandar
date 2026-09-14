@@ -19,7 +19,10 @@ const port = process.env.PORT || 3000;
 app.set('trust proxy', 1);
 
 // Security middleware.
-app.use(helmet()); // Protects response headers.
+app.use(helmet({
+  crossOriginOpenerPolicy: false,
+  crossOriginEmbedderPolicy: false,
+})); // Protects response headers.
 app.use(cors()); // Enables Cross-Origin Resource Sharing.
 app.use(express.json({
   verify: (req, _res, buffer) => {
