@@ -15,6 +15,9 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Trust proxy (required for rate-limiter behind Nginx).
+app.set('trust proxy', 1);
+
 // Security middleware.
 app.use(helmet()); // Protects response headers.
 app.use(cors()); // Enables Cross-Origin Resource Sharing.
