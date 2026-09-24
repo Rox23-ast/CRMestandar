@@ -11,7 +11,10 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-const tokenPayloadSchema = z.object({ sub: z.string().uuid() });
+const tokenPayloadSchema = z.object({
+  sub: z.string().uuid(),
+  tv: z.number().int().nonnegative()
+});
 
 export const requireCrmUser = async (
   req: AuthenticatedRequest,
@@ -48,6 +51,24 @@ export const requireCrmUser = async (
         type: 'https://httpstatuses.com/401',
         title: 'User not found',
         status: 401
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({
+        type: 'https://httpstatuses.com/403',
+        title: 'Account disabled',
+        status: 403,
+        detail: 'This account has been deactivated.'
+      });
+    }
+
+    if (payload.data.tv !== user.tokenVersion) {
+      return res.status(401).json({
+        type: 'https://httpstatuses.com/401',
+        title: 'Token revoked',
+        status: 401,
+        detail: 'This session has expired. Please log in again.'
       });
     }
 

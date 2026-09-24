@@ -1,5 +1,24 @@
 import { Request, Response } from 'express';
+import { z } from 'zod';
 import { prisma } from '../../core/database/prisma';
+
+const customRuleSchema = z.object({
+  id: z.string(),
+  title: z.string().trim().min(1).max(120),
+  keywords: z.string().trim().max(500),
+  response: z.string().trim().min(1).max(2000)
+});
+
+const botConfigSchema = z.object({
+  greetingMessage: z.string().trim().min(1).max(500),
+  awayMessage: z.string().trim().min(1).max(500),
+  aiPersonalityPrompt: z.string().trim().min(1).max(5000),
+  limitations: z.string().trim().max(5000),
+  customRules: z.array(customRuleSchema)
+});
+
+const problem = (res: Response, status: number, title: string) =>
+  res.status(status).json({ type: `https://httpstatuses.com/${status}`, title, status });
 
 export const getBotConfig = async (req: Request, res: Response) => {
   try {
@@ -30,8 +49,13 @@ export const getBotConfig = async (req: Request, res: Response) => {
 };
 
 export const updateBotConfig = async (req: Request, res: Response) => {
+  const parsed = botConfigSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return problem(res, 400, 'Configuration data is invalid');
+  }
+
   try {
-    const { greetingMessage, awayMessage, aiPersonalityPrompt, limitations, customRules } = req.body;
+    const { greetingMessage, awayMessage, aiPersonalityPrompt, limitations, customRules } = parsed.data;
     
     const existingConfig = await prisma.botConfig.findFirst();
     

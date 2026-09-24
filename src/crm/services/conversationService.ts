@@ -12,6 +12,8 @@ export const ACTIVE_CONVERSATION_STATUSES = [
 
 const MARKETING_ROLE = 'MARKETING_DIRECTOR';
 
+export const DEFAULT_BUSINESS_STATUS = 'PENDIENTE_COTIZACION';
+
 interface WeeklySlot {
   start: string;
   end: string;
@@ -95,10 +97,14 @@ const getAssignmentTarget = async (
   now: Date
 ): Promise<AssignmentTarget> => {
   if (!(await isWithinBusinessHours(now))) {
-    return { role: MARKETING_ROLE, reason: 'OUT_OF_HOURS' };
+    const directors = await tx.user.findMany({ where: { role: MARKETING_ROLE, isActive: true }, orderBy: { createdAt: 'asc' } });
+    const director = directors[0];
+    return director
+      ? { userId: director.id, role: MARKETING_ROLE, reason: 'OUT_OF_HOURS' }
+      : { role: MARKETING_ROLE, reason: 'OUT_OF_HOURS' };
   }
 
-  const agents = await tx.user.findMany({ where: { role: 'AGENT', availabilityStatus: 'AVAILABLE' } });
+  const agents = await tx.user.findMany({ where: { role: 'AGENT', availabilityStatus: 'AVAILABLE', isActive: true } });
   const eligibleAgents = [];
 
   for (const agent of agents) {
@@ -206,6 +212,7 @@ export const createOrGetConversation = async (phone: string, now = new Date()) =
         status: 'BOT_ACTIVE',
         assignedUserId: target.userId,
         assignedRole: target.role,
+        businessStatus: DEFAULT_BUSINESS_STATUS,
         firstResponseDueAt: new Date(now.getTime() + (sla?.firstResponseMinutes ?? 15) * 60 * 1000),
         nextFollowUpAt: new Date(now.getTime() + (sla?.followUpMinutes ?? 1440) * 60 * 1000)
       }
@@ -360,7 +367,7 @@ export const manuallyAssignConversation = async (
   assignedByUserId: string
 ) => {
   const targetUser = await prisma.user.findUnique({ where: { id: targetUserId } });
-  if (!targetUser || !['AGENT', MARKETING_ROLE].includes(targetUser.role)) {
+  if (!targetUser || !['AGENT', MARKETING_ROLE].includes(targetUser.role) || !targetUser.isActive) {
     throw new Error('TARGET_USER_NOT_ALLOWED');
   }
 

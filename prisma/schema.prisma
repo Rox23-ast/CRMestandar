@@ -23,6 +23,8 @@ model User {
   availabilityStatus     String                   @default("AVAILABLE") // AVAILABLE, BUSY, AWAY, OFFLINE
   maxActiveConversations Int                      @default(20)
   lastAssignedAt         DateTime?
+  isActive               Boolean                  @default(true)
+  tokenVersion           Int                      @default(0)
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
   assignedConversations  Conversation[]           @relation("ConversationAssignee")
@@ -56,6 +58,7 @@ model Conversation {
   assignedRole       String?
   status             String                   @default("BOT_ACTIVE") // NEW, BOT_ACTIVE, HUMAN_ACTIVE, WAITING_CUSTOMER, RESOLVED, CLOSED
   priority           String                   @default("NORMAL") // URGENT, HIGH, NORMAL, LOW
+  businessStatus     String?                  // FK a ConversationStatusConfig (code)
   lastMessageAt      DateTime                 @default(now())
   firstResponseDueAt DateTime?
   nextFollowUpAt     DateTime?
@@ -170,6 +173,18 @@ model StoredCredential {
   data      String
   iv        String
   tag       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ConversationStatusConfig {
+  id        String   @id @default(uuid())
+  code      String   @unique   // slug: PENDIENTE_COTIZACION
+  label     String
+  color     String   @default("#64748b")
+  isFinal   Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

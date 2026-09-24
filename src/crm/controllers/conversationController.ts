@@ -17,7 +17,9 @@ const listQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   status: z.string().optional(),
   priority: z.string().optional(),
-  assignedUserId: z.string().uuid().optional()
+  assignedUserId: z.string().uuid().optional(),
+  businessStatus: z.string().optional(),
+  includeFinal: z.coerce.boolean().optional()
 });
 
 const messageSchema = z.object({
@@ -28,10 +30,26 @@ const assignmentSchema = z.object({
   userId: z.string().uuid()
 });
 
+const statusConfigCreateSchema = z.object({
+  label: z.string().trim().min(1).max(60),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#64748b'),
+  isFinal: z.boolean().optional().default(false),
+  sortOrder: z.coerce.number().int().optional().default(0)
+});
+
+const statusConfigUpdateSchema = z.object({
+  id: z.string().uuid()
+});
+
+const statusConfigDeleteSchema = z.object({
+  id: z.string().uuid()
+});
+
 const statusSchema = z.object({
   status: z.enum(['NEW', 'BOT_ACTIVE', 'HUMAN_ACTIVE', 'WAITING_CUSTOMER', 'RESOLVED', 'CLOSED']),
   priority: z.enum(['URGENT', 'HIGH', 'NORMAL', 'LOW']).optional(),
-  nextFollowUpAt: z.string().datetime().nullable().optional()
+  nextFollowUpAt: z.string().datetime().nullable().optional(),
+  businessStatus: z.string().optional()
 });
 
 const slaSchema = z.object({
@@ -70,16 +88,30 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
     return problem(res, 400, 'Invalid conversation filters');
   }
 
-  const { page, pageSize, status, priority, assignedUserId } = parsed.data;
+  const { page, pageSize, status, priority, assignedUserId, businessStatus, includeFinal } = parsed.data;
   const userFilter = canSeeAllConversations(req.user.role)
     ? {}
-    : { OR: [{ assignedUserId: req.user.id }, { assignedUserId: null, assignedRole: 'MARKETING_DIRECTOR' }] };
-  const where = {
+    : { assignedUserId: req.user.id };
+  const where: any = {
     ...userFilter,
     ...(status ? { status } : {}),
     ...(priority ? { priority } : {}),
     ...(assignedUserId ? { assignedUserId } : {})
   };
+
+  // Excluir conversaciones cuyo estado de gestión sea final, a menos que se pida verlas
+  if (!includeFinal) {
+    const finalStatuses = await prisma.conversationStatusConfig.findMany({ where: { isFinal: true, isActive: true } });
+    const finalCodes = finalStatuses.map(s => s.code);
+    if (finalCodes.length > 0) {
+      where.businessStatus = { notIn: [...finalCodes, null] };
+    }
+  }
+
+  // Filtrar por businessStatus si viene en la query
+  if (businessStatus) {
+    where.businessStatus = businessStatus;
+  }
 
   const [conversations, total] = await Promise.all([
     prisma.conversation.findMany({
@@ -233,6 +265,52 @@ export const updateSlaPolicy = async (req: AuthenticatedRequest, res: Response) 
     update: parsed.data
   });
   return res.json(policy);
+};
+
+export const listConversationStatuses = async (req: AuthenticatedRequest, res: Response) => {
+  const statuses = await prisma.conversationStatusConfig.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } });
+  return res.json(statuses);
+};
+
+export const createConversationStatus = async (req: AuthenticatedRequest, res: Response) => {
+  const parsed = statusConfigCreateSchema.safeParse(req.body);
+  if (!parsed.success) return problem(res, 400, 'Conversation status data is invalid');
+  const { label, color, isFinal, sortOrder } = parsed.data;
+  const code = label
+    .toUpperCase()
+    .replace(/[^\w]/g, '_')
+    .replace(/^_+/, '')
+    .replace(/_+$/, '')
+    .replace(/__+/g, '_')
+    .substring(0, 30);
+  // Verificar unicidad del code
+  const exists = await prisma.conversationStatusConfig.findFirst({ where: { code, isActive: true } });
+  if (exists) return problem(res, 409, 'Ya existe un estado con ese código');
+  const status = await prisma.conversationStatusConfig.create({
+    data: { code, label, color, isFinal: isFinal ?? false, sortOrder: sortOrder ?? 0, isActive: true }
+  });
+  return res.json(status);
+};
+
+export const updateConversationStatusConfig = async (req: AuthenticatedRequest, res: Response) => {
+  const parsed = statusConfigUpdateSchema.safeParse(req.params);
+  if (!parsed.success) return problem(res, 400, 'Conversation status ID is invalid');
+  const id = parsed.data.id;
+  const updateData: any = {};
+  if (req.body.label !== undefined) updateData.label = req.body.label;
+  if (req.body.color !== undefined) updateData.color = req.body.color;
+  if (req.body.isFinal !== undefined) updateData.isFinal = req.body.isFinal;
+  if (req.body.sortOrder !== undefined) updateData.sortOrder = req.body.sortOrder;
+  const status = await prisma.conversationStatusConfig.update({ where: { id }, data: updateData });
+  return res.json(status);
+};
+
+export const deleteConversationStatusConfig = async (req: AuthenticatedRequest, res: Response) => {
+  const parsed = statusConfigDeleteSchema.safeParse(req.params);
+  if (!parsed.success) return problem(res, 400, 'Conversation status ID is invalid');
+  const id = parsed.data.id;
+  await prisma.conversationStatusConfig.update({ where: { id }, data: { isActive: false } });
+  return res.json({ success: true });
 };
 
 export const getBusinessHours = async (_req: AuthenticatedRequest, res: Response) => {

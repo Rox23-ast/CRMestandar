@@ -383,7 +383,7 @@ Pestaña "Leads" que muestra una vista consolidada de clientes potenciales, agru
 
 **Permisos:**
 - ADMIN y MARKETING_DIRECTOR: ven todos los leads
-- AGENT: solo leads con conversaciones asignadas a él
+- AGENT: solo leads con al menos una conversación activa asignada a él (el filtro se aplica tanto al listado como al total; sin él, un AGENT podía enumerar nombre y teléfono de todos los clientes)
 
 **Respuesta:**
 ```json
@@ -425,16 +425,42 @@ Las cotizaciones (`Quote`) actualmente están vacías porque la captura del bot 
 
 ### 12.5 Tests
 
-Tests unitarios en `src/crm/services/__tests__/leadService.test.ts` (8 tests):
+Tests unitarios en `src/crm/services/__tests__/leadService.test.ts` (9 tests):
 - Retorna leads paginados para admin
 - Filtra por businessStatus
 - Filtra por hasQuote=true y hasQuote=false
 - Busca por nombre o teléfono
 - Restringe agente a conversaciones asignadas
+- Restringe agente a clientes con al menos una conversación asignada (fuga de datos corregida)
 - Retorna cliente sin cotización
 - Retorna cliente sin conversación activa
 
 Total de tests: 47/47 pasan.
+
+---
+
+## 13. Endurecimiento de Seguridad (Septiembre 2026)
+
+### 13.1 CORS por Allowlist
+
+`app.use(cors())` abierto fue reemplazado por una política explícita en `src/index.ts`:
+
+- Peticiones **same-origin** (Origin ausente o con el mismo host de la petición) siempre permitidas — el panel se sirve desde el mismo dominio.
+- Peticiones **cross-origin** solo permitidas si el origen está en `CORS_ORIGINS` (env, lista separada por comas). Default para desarrollo: `http://localhost:5173,http://127.0.0.1:5173` (Vite dev).
+- Cualquier otro origen no recibe cabecera `Access-Control-Allow-Origin`.
+
+### 13.2 Rate Limiting por Capas
+
+- **Global:** 100 req / 15 min por IP para toda la app.
+- **Autenticación:** limiter estricto adicional de 10 req / 15 min por IP en `/api/crm/auth/login` y `/api/crm/auth/bootstrap` (anti fuerza bruta).
+- **Webhook exento:** `GET/POST /api/bot/webhook` se registran **antes** del limiter global para nunca estrangular tráfico legítimo de Meta; el POST queda protegido por la firma HMAC `x-hub-signature-256`.
+
+### 13.3 Entorno Local vs VPS (nginx)
+
+El `nginx.conf` base es para producción (SSL con certificados Let's Encrypt de `cotizador.chicologistica.com`, puerto 80 redirige a HTTPS). Para correr el stack localmente sin certificados:
+
+- `deploy/nginx.local.conf`: puerto 80 sin SSL, proxy a `app:3000`, oculta cabeceras COOP/COEP/Origin-Agent-Cluster.
+- `deploy/docker-compose.override.yml`: lo carga Compose automáticamente en local (expone además `3000:3000` del backend). En el VPS se ejecuta `docker compose -f docker-compose.yml up -d` (sin override) para usar la config con SSL.
 
 ---
 

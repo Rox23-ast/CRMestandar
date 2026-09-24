@@ -1,0 +1,11 @@
+# Override solo para desarrollo local.
+# En el VPS se ejecuta `docker compose -f docker-compose.yml up -d` SIN este archivo.
+
+services:
+  app:
+    ports:
+      - "3000:3000"
+
+  nginx:
+    volumes:
+      - ./nginx.local.conf:/etc/nginx/nginx.conf:ro

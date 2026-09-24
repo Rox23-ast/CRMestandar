@@ -19,9 +19,9 @@ frontend/dist
 .env.*
 !.env.example
 
-# Local SQLite databases
-*.db
-*.db-journal
+# Local SQLite databases (any depth: *.db alone only matches the build root)
+**/*.db
+**/*.db-journal
 
 # Local debug / utility scripts
 check-db.mjs

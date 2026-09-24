@@ -8,6 +8,7 @@ import { getBotConfig, updateBotConfig } from './bot/controllers/configControlle
 import { verifyWebhook, receiveMessage } from './bot/controllers/webhookController';
 import { crmRouter } from './crm/routes';
 import { seedFromEnv } from './crm/services/credentialService';
+import { requireCrmUser, requireCrmRole } from './core/auth/authMiddleware';
 
 // Load environment variables.
 dotenv.config();
@@ -24,12 +25,38 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
   originAgentCluster: false,
 })); // Protects response headers.
-app.use(cors()); // Enables Cross-Origin Resource Sharing.
+
+// CORS allowlist: same-origin requests are always allowed; cross-origin
+// requests require an explicit entry in CORS_ORIGINS (comma-separated).
+const corsExtraOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+app.use((req: Request, res: Response, next) => {
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (corsExtraOrigins.includes(origin)) return callback(null, true);
+      try {
+        return callback(null, new URL(origin).host === req.headers.host);
+      } catch {
+        return callback(null, false);
+      }
+    }
+  })(req, res, next);
+});
+
 app.use(express.json({
   verify: (req, _res, buffer) => {
     (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
   }
 })); // Parses JSON and preserves webhook bytes for signature validation.
+
+// WhatsApp webhook endpoints. Registered before the global rate limiter so
+// Meta's legitimate traffic is never throttled; the POST is protected by the
+// x-hub-signature-256 HMAC validation instead.
+app.get('/api/bot/webhook', verifyWebhook);
+app.post('/api/bot/webhook', receiveMessage);
 
 // Rate limiter to reduce brute-force and request-flooding attacks.
 const limiter = rateLimit({
@@ -39,6 +66,22 @@ const limiter = rateLimit({
   legacyHeaders: false,
 });
 app.use(limiter);
+
+// Stricter limiter for authentication endpoints to slow down brute-force.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    type: 'https://httpstatuses.com/429',
+    title: 'Too many authentication attempts',
+    status: 429,
+    detail: 'Too many attempts. Please try again later.'
+  }
+});
+app.use('/api/crm/auth/login', authLimiter);
+app.use('/api/crm/auth/bootstrap', authLimiter);
 
 // Redirect the server root to the CRM panel, the main entry route.
 app.get('/', (_req: Request, res: Response) => {
@@ -64,12 +107,8 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // Bot configuration endpoints.
-app.get('/api/bot/config', getBotConfig);
-app.put('/api/bot/config', updateBotConfig);
-
-// WhatsApp webhook endpoints.
-app.get('/api/bot/webhook', verifyWebhook);
-app.post('/api/bot/webhook', receiveMessage);
+app.get('/api/bot/config', requireCrmUser, requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), getBotConfig);
+app.put('/api/bot/config', requireCrmUser, requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), updateBotConfig);
 
 // CRM inbox and real-time notification endpoints.
 app.use('/api/crm', crmRouter);
