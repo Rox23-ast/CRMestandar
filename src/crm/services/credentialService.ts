@@ -9,6 +9,8 @@ export interface ApiCredentials {
   OPENAI_API_KEY: string;
   ANTHROPIC_API_KEY: string;
   GEMINI_API_KEY: string;
+  CRM_WEBHOOK_URL: string;
+  CRM_WEBHOOK_SECRET: string;
 }
 
 export interface MaskedCredentials {
@@ -19,6 +21,8 @@ export interface MaskedCredentials {
   OPENAI_API_KEY: string;
   ANTHROPIC_API_KEY: string;
   GEMINI_API_KEY: string;
+  CRM_WEBHOOK_URL: string;
+  CRM_WEBHOOK_SECRET: string;
 }
 
 function maskValue(value: string): string {
@@ -36,6 +40,8 @@ function getEnvCredentials(): Partial<ApiCredentials> {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
     GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? '',
+    CRM_WEBHOOK_URL: process.env.CRM_WEBHOOK_URL ?? '',
+    CRM_WEBHOOK_SECRET: process.env.CRM_WEBHOOK_SECRET ?? '',
   };
 }
 
@@ -51,18 +57,22 @@ export async function getCredentials(): Promise<MaskedCredentials> {
       OPENAI_API_KEY: maskValue(envCreds.OPENAI_API_KEY ?? ''),
       ANTHROPIC_API_KEY: maskValue(envCreds.ANTHROPIC_API_KEY ?? ''),
       GEMINI_API_KEY: maskValue(envCreds.GEMINI_API_KEY ?? ''),
+      CRM_WEBHOOK_URL: maskValue(envCreds.CRM_WEBHOOK_URL ?? ''),
+      CRM_WEBHOOK_SECRET: maskValue(envCreds.CRM_WEBHOOK_SECRET ?? ''),
     };
   }
   const plain = decrypt(record.data, record.iv, record.tag);
-  const creds: ApiCredentials = JSON.parse(plain);
+  const creds: Partial<ApiCredentials> = JSON.parse(plain);
   return {
-    WA_API_TOKEN: maskValue(creds.WA_API_TOKEN),
-    WA_VERIFY_TOKEN: maskValue(creds.WA_VERIFY_TOKEN),
-    WA_PHONE_NUMBER_ID: maskValue(creds.WA_PHONE_NUMBER_ID),
-    WA_APP_SECRET: maskValue(creds.WA_APP_SECRET),
-    OPENAI_API_KEY: maskValue(creds.OPENAI_API_KEY),
-    ANTHROPIC_API_KEY: maskValue(creds.ANTHROPIC_API_KEY),
-    GEMINI_API_KEY: maskValue(creds.GEMINI_API_KEY),
+    WA_API_TOKEN: maskValue(creds.WA_API_TOKEN ?? ''),
+    WA_VERIFY_TOKEN: maskValue(creds.WA_VERIFY_TOKEN ?? ''),
+    WA_PHONE_NUMBER_ID: maskValue(creds.WA_PHONE_NUMBER_ID ?? ''),
+    WA_APP_SECRET: maskValue(creds.WA_APP_SECRET ?? ''),
+    OPENAI_API_KEY: maskValue(creds.OPENAI_API_KEY ?? ''),
+    ANTHROPIC_API_KEY: maskValue(creds.ANTHROPIC_API_KEY ?? ''),
+    GEMINI_API_KEY: maskValue(creds.GEMINI_API_KEY ?? ''),
+    CRM_WEBHOOK_URL: maskValue(creds.CRM_WEBHOOK_URL ?? ''),
+    CRM_WEBHOOK_SECRET: maskValue(creds.CRM_WEBHOOK_SECRET ?? ''),
   };
 }
 
@@ -78,10 +88,24 @@ export async function getRawCredentials(): Promise<ApiCredentials> {
       OPENAI_API_KEY: envCreds.OPENAI_API_KEY ?? '',
       ANTHROPIC_API_KEY: envCreds.ANTHROPIC_API_KEY ?? '',
       GEMINI_API_KEY: envCreds.GEMINI_API_KEY ?? '',
+      CRM_WEBHOOK_URL: envCreds.CRM_WEBHOOK_URL ?? '',
+      CRM_WEBHOOK_SECRET: envCreds.CRM_WEBHOOK_SECRET ?? '',
     };
   }
   const plain = decrypt(record.data, record.iv, record.tag);
-  return JSON.parse(plain);
+  const stored: Partial<ApiCredentials> = JSON.parse(plain);
+  // Records created before the webhook fields existed stay backward compatible.
+  return {
+    WA_API_TOKEN: stored.WA_API_TOKEN ?? '',
+    WA_VERIFY_TOKEN: stored.WA_VERIFY_TOKEN ?? '',
+    WA_PHONE_NUMBER_ID: stored.WA_PHONE_NUMBER_ID ?? '',
+    WA_APP_SECRET: stored.WA_APP_SECRET ?? '',
+    OPENAI_API_KEY: stored.OPENAI_API_KEY ?? '',
+    ANTHROPIC_API_KEY: stored.ANTHROPIC_API_KEY ?? '',
+    GEMINI_API_KEY: stored.GEMINI_API_KEY ?? '',
+    CRM_WEBHOOK_URL: stored.CRM_WEBHOOK_URL ?? '',
+    CRM_WEBHOOK_SECRET: stored.CRM_WEBHOOK_SECRET ?? '',
+  };
 }
 
 export async function saveCredentials(creds: Partial<ApiCredentials>): Promise<void> {

@@ -1,7 +1,8 @@
 # Integración del Cotizador — Estado Actual y Arquitectura
 
-> Documento vivo. Última actualización: 2026-09-21.
+> Documento vivo. Última actualización: 2026-09-24.
 > Describe cómo se conecta el módulo Cotizador (desarrollo externo con su propia UI y BD) con el backend de Mudanzas Chico.
+> **Estado: IMPLEMENTADO** (backend de este repo). Ver también ARCHITECTURE.md §9.
 
 ## 1. Decisión de Arquitectura (ADR)
 
@@ -32,13 +33,17 @@ Este backend (Bot + CRM) ──webhook──▶ Sistema Cotizador externo
                 (quote.status.updated)
 ```
 
-### 2.2 Configuración en este backend (`.env`)
+### 2.2 Configuración en este backend (`.env` o panel)
 
 ```env
-# Webhook del sistema cotizador externo
-COTIZADOR_WEBHOOK_URL="https://cotizador.empresa.com/api/webhooks/mudanzas-chico"
-COTIZADOR_WEBHOOK_SECRET="secreto_compartido_de_al_menos_32_bytes"
+# URL del sistema cotizador externo (recibe quote.requested / quote.captured)
+CRM_WEBHOOK_URL="https://<dominio-api-cotizador>/api/webhooks/mudanzas-chico"
+# Secreto HMAC compartido, >= 32 bytes
+# Generar con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+CRM_WEBHOOK_SECRET="..."
 ```
+
+Ambas variables también son editables desde el panel CRM (**Configuración de APIs**, rol ADMIN) y quedan cifradas en `StoredCredential`. El cotizador debe recibir **nuestra** URL pública (`https://<nuestro-dominio>/api/integrations/cotizador/events`) y el **mismo** secreto en su `.env` (`COTIZADOR_WEBHOOK_URL` / `COTIZADOR_WEBHOOK_SECRET`).
 
 ### 2.3 Eventos salientes (backend → cotizador)
 
@@ -117,36 +122,40 @@ El cotizador lo envía cuando una cotización cambia de estado, para que el bot 
 ### 2.6 Entrega y reintentos
 
 - El webhook saliente espera respuesta `2xx` (idealmente `200`).
-- Si falla (timeout, 4xx/5xx, red), se reintenta con **backoff exponencial** (ej. 5s, 25s, 125s, 625s → máx. 5 intentos).
-- Eventos fallidos se registran en una tabla `OutboundWebhookEvent` para auditoría y reintento manual.
+- Si falla (timeout, 4xx/5xx, red), se reintenta con **backoff exponencial** (5s, 25s, 125s, 625s → máx. 5 intentos) **en background**: el chat nunca espera la entrega.
+- Cada evento (saliente y entrante) se registra en la tabla `WebhookEvent` (id del evento, dirección, payload, status, intentos, último error) para auditoría y reintento manual.
+- El emisor del cotizador (callbacks hacia nosotros) debe aplicar la misma política de reintentos; nuestro endpoint deduplica por `event.id` y libera el marcador si el procesamiento falla, para que el reintento pueda repetirse.
+- Si nuestro endpoint responde **503** (secreto no configurado o no descifrable en el CRM), el emisor debe reintentar más tarde: no es un rechazo permanente del evento.
 
 ## 3. Qué hacer con el modelo `Quote` local
 
-El modelo `Quote` en `prisma/schema.prisma` existe pero nunca se usó. **Nueva función:** registro espejo ligero para el CRM.
+El modelo `Quote` en `prisma/schema.prisma` se usa ahora como **registro espejo ligero** para el CRM.
 
-- Agregar campo `externalId String?` — ID de la cotización en el sistema externo.
+- ✅ Campo `externalId String? @unique` — ID de la cotización en el sistema externo (se llena con el primer callback).
+- ✅ Campo `conversationId String?` — correlación con la conversación de WhatsApp (también clave de búsqueda del callback).
 - `status` espeja el estado informado por el callback (`PENDING`/`ACCEPTED`/`REJECTED`).
-- `price` se llena con el valor del callback.
+- `price` se llena con el valor del callback (cuando viene).
 - El CRM muestra: "cliente en proceso de cotización" + enlace a la conversación. La gestión comercial vive en el sistema cotizador.
 
-## 4. Brecha Crítica Actual (pendiente de implementar)
+## 4. Brecha Crítica (RESUELTA)
 
-El flujo del bot (`conversationFlow.ts`) captura origen/destino/volumen pero **NO los persiste ni los envía a ningún sistema**. Hoy los datos se pierden. La implementación de esta arquitectura resuelve esa brecha.
+El flujo del bot **ahora persiste** origen/destino/volumen en `Client` durante la captura y, al completarla, crea el `Quote` local y emite `quote.captured`. Antes esos datos se perdían.
 
-## 5. Plan de Implementación
+## 5. Implementación (Septiembre 2026)
 
-1. **`src/integrations/webhookClient.ts`** — Cliente saliente genérico: firma HMAC, reintentos con backoff, registro de eventos fallidos.
-2. **`src/integrations/events.ts`** — Definiciones Zod de los payloads del contrato (2.3 y 2.4).
-3. **Conectar `conversationFlow.ts`:**
-   - Al detectar `intent: QUOTE` → emitir `quote.requested`.
-   - En el estado `QUOTE_VOLUME` (al recibir la respuesta) → persistir `Quote` local y emitir `quote.captured` con origen, destino y volumen.
-4. **Endpoint de callback** `POST /api/integrations/cotizador/events` — valida firma HMAC, parsea con Zod, actualiza la `Quote` local y notifica al cliente vía bot.
-5. **Configuración:** `COTIZADOR_WEBHOOK_URL` y `COTIZADOR_WEBHOOK_SECRET` en `.env` / `.env.example`.
-6. **Tests unitarios** para firma, validación e idempotencia (jest).
+1. ✅ **`src/integrations/webhookClient.ts`** — Cliente saliente: firma HMAC, reintentos de fondo con backoff, auditoría en `WebhookEvent`.
+2. ✅ **`src/integrations/events.ts`** — Definiciones Zod de los payloads (§2.3 y §2.4).
+3. ✅ **`src/integrations/signature.ts`** — Firmar/verificar `X-Mudanzas-Signature` con ventana anti-replay de 5 min.
+4. ✅ **`conversationFlow.ts`:**
+   - `intent: QUOTE` de la IA **o** regla rápida de captura → emite `quote.requested`.
+   - Captura en `QUOTE_ORIGIN`/`QUOTE_DESTINATION`/`QUOTE_VOLUME` → persiste en `Client`, crea `Quote` y emite `quote.captured`.
+5. ✅ **Callback** `POST /api/integrations/cotizador/events` — firma, Zod, dedup, mapeo a `Quote`, notificación WhatsApp en ACCEPTED/REJECTED.
+6. ✅ **Configuración:** `CRM_WEBHOOK_URL` y `CRM_WEBHOOK_SECRET` en `.env`/`.env.example` **y** en el panel CRM (Configuración de APIs).
+7. ✅ **Tests:** firma, schemas, callback (401/400/503/200/dedup), webhook client, conversationFlow, credentials (99/99).
 
-## 6. Preguntas abiertas para el equipo del cotizador
+## 6. Respuestas a las preguntas del contrato (§ previo)
 
-- ¿Endpoints alternos para `quote.requested` y `quote.captured`, o uno solo?
-- ¿Formato del `volumeM3`: decimal con cuántos dígitos?
-- ¿El callback incluye siempre `price` o solo en `ACCEPTED`?
-- ¿Identificador del cliente: teléfono WhatsApp como clave única?
+- **¿Endpoints alternos o uno solo?** → **Uno solo** para `quote.requested` y `quote.captured`: la URL de `CRM_WEBHOOK_URL` (`https://<dominio-api-cotizador>/api/webhooks/mudanzas-chico`).
+- **¿Formato del `volumeM3`?** → **Decimal con máximo 2 dígitos** (ej. `12.5`); el emisor redondea a 2 decimales antes de enviar y Zod rechaza negativos.
+- **¿`price` siempre o solo en `ACCEPTED`?** → **Solo está garantizado en `ACCEPTED`**; otros estados pueden omitirlo. El CRM persiste el precio solo cuando el callback lo incluye.
+- **¿Teléfono WhatsApp como clave única del cliente?** → **Sí.** `Client.phone` es `@unique` en el esquema y el evento incluye `client.phone` (+ `conversationId` para correlación).

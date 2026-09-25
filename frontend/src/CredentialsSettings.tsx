@@ -12,6 +12,8 @@ interface ApiCredentials {
   OPENAI_API_KEY: string
   ANTHROPIC_API_KEY: string
   GEMINI_API_KEY: string
+  CRM_WEBHOOK_URL: string
+  CRM_WEBHOOK_SECRET: string
 }
 
 interface CredentialField {
@@ -63,6 +65,18 @@ const CREDENTIAL_FIELDS: CredentialField[] = [
     label: 'Google Gemini API Key',
     placeholder: 'AIza...',
     description: 'Clave de API para modelos Gemini (Google)'
+  },
+  {
+    key: 'CRM_WEBHOOK_URL',
+    label: 'Cotizador Webhook URL',
+    placeholder: 'https://<dominio-api-cotizador>/api/webhooks/mudanzas-chico',
+    description: 'URL pública del sistema cotizador que recibe quote.requested y quote.captured'
+  },
+  {
+    key: 'CRM_WEBHOOK_SECRET',
+    label: 'Cotizador Webhook Secret',
+    placeholder: 'secreto compartido (>= 32 bytes)',
+    description: 'Secreto HMAC compartido para firmar y validar los webhooks del cotizador'
   }
 ]
 
@@ -74,7 +88,9 @@ export default function CredentialsSettings({ userRole, token }: { userRole: str
     WA_APP_SECRET: '',
     OPENAI_API_KEY: '',
     ANTHROPIC_API_KEY: '',
-    GEMINI_API_KEY: ''
+    GEMINI_API_KEY: '',
+    CRM_WEBHOOK_URL: '',
+    CRM_WEBHOOK_SECRET: ''
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<keyof ApiCredentials | null>(null)
@@ -85,7 +101,9 @@ export default function CredentialsSettings({ userRole, token }: { userRole: str
     WA_APP_SECRET: false,
     OPENAI_API_KEY: false,
     ANTHROPIC_API_KEY: false,
-    GEMINI_API_KEY: false
+    GEMINI_API_KEY: false,
+    CRM_WEBHOOK_URL: false,
+    CRM_WEBHOOK_SECRET: false
   })
   const [toast, setToast] = useState<{show: boolean, message: string, type: 'success' | 'error'}>({show: false, message: '', type: 'success'})
   const [isAdmin, setIsAdmin] = useState(false)
@@ -96,7 +114,9 @@ export default function CredentialsSettings({ userRole, token }: { userRole: str
     WA_APP_SECRET: false,
     OPENAI_API_KEY: false,
     ANTHROPIC_API_KEY: false,
-    GEMINI_API_KEY: false
+    GEMINI_API_KEY: false,
+    CRM_WEBHOOK_URL: false,
+    CRM_WEBHOOK_SECRET: false
   })
 
   useEffect(() => {
@@ -117,7 +137,9 @@ export default function CredentialsSettings({ userRole, token }: { userRole: str
         WA_APP_SECRET: false,
         OPENAI_API_KEY: false,
         ANTHROPIC_API_KEY: false,
-        GEMINI_API_KEY: false
+        GEMINI_API_KEY: false,
+        CRM_WEBHOOK_URL: false,
+        CRM_WEBHOOK_SECRET: false
       })
     } catch (error) {
       console.error('Error fetching credentials:', error)

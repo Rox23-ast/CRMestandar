@@ -11,6 +11,8 @@ const credentialsSchema = z.object({
   OPENAI_API_KEY: z.string().max(500).optional(),
   ANTHROPIC_API_KEY: z.string().max(500).optional(),
   GEMINI_API_KEY: z.string().max(500).optional(),
+  CRM_WEBHOOK_URL: z.string().max(500).optional(),
+  CRM_WEBHOOK_SECRET: z.string().max(200).optional(),
 });
 
 const problem = (res: Response, status: number, title: string) =>

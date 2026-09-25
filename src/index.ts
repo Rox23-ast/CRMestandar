@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { getBotConfig, updateBotConfig } from './bot/controllers/configController';
 import { verifyWebhook, receiveMessage } from './bot/controllers/webhookController';
+import { receiveCotizadorEvent } from './integrations/cotizadorController';
 import { crmRouter } from './crm/routes';
 import { seedFromEnv } from './crm/services/credentialService';
 import { requireCrmUser, requireCrmRole } from './core/auth/authMiddleware';
@@ -57,6 +58,11 @@ app.use(express.json({
 // x-hub-signature-256 HMAC validation instead.
 app.get('/api/bot/webhook', verifyWebhook);
 app.post('/api/bot/webhook', receiveMessage);
+
+// Cotizador callback endpoint. Same rationale as the Meta webhook: it sits
+// before the global rate limiter and is protected by X-Mudanzas-Signature
+// HMAC validation (timestamp anti-replay + event-id deduplication).
+app.post('/api/integrations/cotizador/events', receiveCotizadorEvent);
 
 // Rate limiter to reduce brute-force and request-flooding attacks.
 const limiter = rateLimit({

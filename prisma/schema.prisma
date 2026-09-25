@@ -35,14 +35,17 @@ model User {
 }
 
 model Client {
-  id            String         @id @default(uuid())
-  phone         String         @unique // WhatsApp Phone
-  name          String?
-  botStep       String         @default("START") // Conversation state tracker
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  quotes        Quote[]
-  conversations Conversation[]
+  id               String         @id @default(uuid())
+  phone            String         @unique // WhatsApp Phone (unique client key)
+  name             String?
+  botStep          String         @default("START") // Conversation state tracker
+  quoteOrigin      String?        // Partial quote capture: origin answer
+  quoteDestination String?        // Partial quote capture: destination answer
+  quoteVolume      Float?         // Partial quote capture: volume in m3
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  quotes           Quote[]
+  conversations    Conversation[]
 }
 
 // ----------------------------------------------------------------------------
@@ -68,6 +71,7 @@ model Conversation {
   assignments        ConversationAssignment[]
   auditEvents        AuditEvent[]
   notifications      Notification[]
+  quotes             Quote[]
 
   @@index([status, priority, lastMessageAt])
   @@index([assignedUserId, status])
@@ -209,14 +213,36 @@ model BotConfig {
 // ----------------------------------------------------------------------------
 
 model Quote {
-  id          String   @id @default(uuid())
-  clientId    String
-  client      Client   @relation(fields: [clientId], references: [id])
-  origin      String
-  destination String
-  volume      Float? // In cubic meters
-  price       Float?
-  status      String   @default("PENDING") // Status: PENDING, ACCEPTED, REJECTED
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String        @id @default(uuid())
+  clientId       String
+  client         Client        @relation(fields: [clientId], references: [id])
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  origin         String
+  destination    String
+  volume         Float? // In cubic meters
+  price          Float?
+  externalId     String?       @unique // Quote ID in the external cotizador system
+  status         String        @default("PENDING") // Status: PENDING, ACCEPTED, REJECTED
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([conversationId])
+}
+
+// Signed webhook traffic: outbound deliveries (with retries) and inbound
+// callbacks (deduplicated by event id).
+model WebhookEvent {
+  id            String    @id // Event id (evt_...)
+  direction     String // INBOUND | OUTBOUND
+  event         String // quote.requested | quote.captured | quote.status.updated
+  payload       String    @default("{}")
+  status        String    @default("PENDING") // PENDING | DELIVERED | PROCESSED | IGNORED | FAILED
+  attempts      Int       @default(0)
+  lastError     String?
+  lastAttemptAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([direction, status, createdAt])
 }

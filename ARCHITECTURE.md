@@ -108,6 +108,10 @@ Se añadió la capacidad de configurar credenciales de WhatsApp Business API y O
 - `WA_PHONE_NUMBER_ID` — ID del número de teléfono de WhatsApp Business
 - `WA_APP_SECRET` — Secret de la aplicación de Meta Developers
 - `OPENAI_API_KEY` — Clave de API de OpenAI para el asistente de IA
+- `ANTHROPIC_API_KEY` — Clave de API para modelos Claude (Anthropic)
+- `GEMINI_API_KEY` — Clave de API para modelos Gemini (Google)
+- `CRM_WEBHOOK_URL` — URL pública del sistema cotizador que recibe `quote.requested` / `quote.captured`
+- `CRM_WEBHOOK_SECRET` — Secreto HMAC compartido (≥ 32 bytes) para firmar/validar webhooks del cotizador (ver §9)
 
 **Excluidas** (infraestructura/seguridad): `DATABASE_URL`, `JWT_SECRET`, `CRM_BOOTSTRAP_TOKEN`, `PORT`, `NODE_ENV`.
 
@@ -128,7 +132,7 @@ Se añadió la capacidad de configurar credenciales de WhatsApp Business API y O
 ### 7.4 Migración Inicial Automática
 
 Al arrancar el servidor (`src/index.ts`), si la tabla `StoredCredential` está vacía, se ejecuta `seedFromEnv()` que:
-1. Lee las 5 variables del `.env` actual.
+1. Lee las variables configurables del `.env` actual.
 2. Si alguna tiene valor, cifra y crea el registro singleton.
 3. Evita sobrescribir credenciales ya guardadas por el usuario.
 
@@ -253,15 +257,31 @@ Ejecutada via `npx prisma migrate dev --name user_security`:
 
 ## 9. Integración con el Cotizador Externo (Webhooks)
 
-El cotizador es un **desarrollo aparte** (sistema completo con su propia UI, usuarios y BD). La integración definida con el backend es **event-driven por webhooks firmados**, no REST síncrono ni BD compartida. Detalle completo en `docs/integracion-cotizador.md`.
+El cotizador es un **desarrollo aparte** (sistema completo con su propia UI, usuarios y BD). La integración con el backend es **event-driven por webhooks firmados**, no REST síncrono ni BD compartida. Detalle completo en `docs/integracion-cotizador.md`.
 
-- **Salientes:** el backend emite `quote.requested` (al detectar intención de cotización) y `quote.captured` (origen + destino + volumen completos) hacia `COTIZADOR_WEBHOOK_URL`.
-- **Entrante (callback opcional):** `POST /api/integrations/cotizador/events` recibe `quote.status.updated` para notificar al cliente por WhatsApp.
-- **Seguridad:** firma HMAC-SHA256 (`X-Mudanzas-Signature`) con timestamp anti-replay y `id` de evento para idempotencia.
-- **Entrega:** reintentos con backoff exponencial y registro en tabla de eventos salientes.
-- **Rol del modelo `Quote` local:** registro espejo ligero con `externalId` para trazabilidad en el CRM; la gestión comercial vive en el sistema externo.
+**Estado: IMPLEMENTADO (Septiembre 2026).**
 
-*Estado actual: contrato definido; implementación pendiente (el bot captura datos pero aún no los persiste ni emite eventos).*
+### 9.1 Flujo saliente (backend → cotizador)
+
+- `quote.requested` se emite cuando la IA detecta `intent: "QUOTE"` **o** cuando coincide la regla de respuesta rápida de captura (título/keywords con `cotiza|mudanza|traslad|captura`) en `conversationFlow.ts`.
+- `quote.captured` se emite al completar la captura (`QUOTE_VOLUME` → `AGENT_HANDOFF`): el bot **persiste** origen/destino/volumen en `Client` (`quoteOrigin`, `quoteDestination`, `quoteVolume`), crea el `Quote` local (`status: PENDING`, con `conversationId`) y emite el evento con `volumeM3` redondeado a 2 decimales.
+- Destino: `CRM_WEBHOOK_URL` (configurable en el panel **Configuración de APIs** o en `.env`).
+- Cliente: `src/integrations/webhookClient.ts` — emisión **no bloqueante** (el chat nunca espera la respuesta HTTP), reintentos de fondo con backoff exponencial (5s → 25s → 125s → 625s, máx. 5 intentos) y auditoría de cada intento en la tabla `WebhookEvent`. Si URL/secret no están configurados, el evento se omite con un warning (no-op).
+
+### 9.2 Entrante (callback cotizador → backend)
+
+- `POST /api/integrations/cotizador/events` recibe `quote.status.updated` (registrado junto al webhook de Meta, **antes** del rate limiter global; protegido por HMAC en vez de rate-limit).
+- Validación en orden: carga de credenciales (si no se pueden descifrar o `CRM_WEBHOOK_SECRET` no está configurado responde **503** reintentable, con log del error) → firma HMAC (`X-Mudanzas-Signature: t=<unix>,v1=<hex>`, ventana anti-replay de 5 min, `timingSafeEqual`) → envelope Zod → payload Zod → dedup por `event.id` (constraint único en `WebhookEvent`; si el procesamiento falla se libera el marcador para que el reintento del emisor pueda repetirlo).
+- Mapeo a `Quote`: busca por `externalId` o `conversationId`, actualiza `externalId`, `status` y `price` (si viene). Si no existe `Quote` local, responde 200 con warning (sin crear registros inválidos).
+- Notificación al cliente: en `ACCEPTED` (con precio formateado `es-CO`) o `REJECTED` el bot envía WhatsApp y registra el mensaje como outbound en la conversación. `PENDING` no notifica.
+- Eventos de tipo desconocido se **acknowledgan con 200** (`ignored: true`) para evitar reintentos infinitos del emisor.
+
+### 9.3 Seguridad y datos
+
+- **Firma:** `v1 = HMAC_SHA256(secret, "v1:" + t + ":" + rawBody)`; mismo secreto en ambos sistemas (`CRM_WEBHOOK_SECRET`, ≥ 32 bytes, generado con `crypto.randomBytes(32).toString('hex')`).
+- **Idempotencia:** `event.id` único en la tabla `WebhookEvent` (dirección `INBOUND`/`OUTBOUND`, payload, status `PENDING|DELIVERED|PROCESSED|IGNORED|FAILED`, intentos y último error).
+- **Clave única del cliente:** `Client.phone` (`@unique`).
+- **Migración:** `20260924051037_add_cotizador_integration` — añade `Quote.externalId`/`Quote.conversationId`, campos de captura en `Client` y la tabla `WebhookEvent`. El Dockerfile ejecuta `npx prisma migrate deploy` antes de arrancar.
 
 ---
 
@@ -421,7 +441,7 @@ Pestaña "Leads" que muestra una vista consolidada de clientes potenciales, agru
 
 ### 12.4 Estado de Cotizaciones
 
-Las cotizaciones (`Quote`) actualmente están vacías porque la captura del bot aún no las persiste (pendiente de integración con el cotizador, ver §9). La pestaña Leads mostrará "Sin cotización" para la mayoría de los clientes hasta que esa integración exista.
+La captura del bot ahora **persiste** en `Quote` al completarse el flujo (origen + destino + volumen, ver §9), con `conversationId` y `externalId` para correlación con el cotizador. Los clientes cuyo flujo de captura aún no se ha completado mostrarán "Sin cotización" en la pestaña Leads hasta que el bot cierre esa captura.
 
 ### 12.5 Tests
 
@@ -435,7 +455,7 @@ Tests unitarios en `src/crm/services/__tests__/leadService.test.ts` (9 tests):
 - Retorna cliente sin cotización
 - Retorna cliente sin conversación activa
 
-Total de tests: 47/47 pasan.
+Total de tests: 99/99 pasan (incluye suites de integración del cotizador: firma, eventos, callback —con casos 401/400/503/200/dedup—, webhook client, conversationFlow y credentials, que además limpia la DB de dev al terminar el suite).
 
 ---
 
@@ -453,7 +473,7 @@ Total de tests: 47/47 pasan.
 
 - **Global:** 100 req / 15 min por IP para toda la app.
 - **Autenticación:** limiter estricto adicional de 10 req / 15 min por IP en `/api/crm/auth/login` y `/api/crm/auth/bootstrap` (anti fuerza bruta).
-- **Webhook exento:** `GET/POST /api/bot/webhook` se registran **antes** del limiter global para nunca estrangular tráfico legítimo de Meta; el POST queda protegido por la firma HMAC `x-hub-signature-256`.
+- **Webhooks exentos:** `GET/POST /api/bot/webhook` y `POST /api/integrations/cotizador/events` se registran **antes** del limiter global para no estrangular tráfico legítimo de Meta ni del cotizador; ambos POST quedan protegidos por validación HMAC (`x-hub-signature-256` y `X-Mudanzas-Signature` respectivamente).
 
 ### 13.3 Entorno Local vs VPS (nginx)
 

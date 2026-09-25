@@ -1,6 +1,6 @@
 -- ================================================================
 -- Mudanzas Chico - Estructura de la base de datos (SQLite)
--- Generado: 2026-08-21T03:53:39.730Z
+-- Generado: 2026-09-24T05:21:24.131Z
 -- Script: npm run db:schema (scripts/dump-db-schema.mjs)
 -- ================================================================
 -- TABLE: AuditEvent
@@ -60,7 +60,7 @@ CREATE TABLE "Client" (
     "botStep" TEXT NOT NULL DEFAULT 'START',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
-);
+, "quoteDestination" TEXT, "quoteOrigin" TEXT, "quoteVolume" REAL);
 
 -- TABLE: Conversation
 CREATE TABLE "Conversation" (
@@ -74,7 +74,7 @@ CREATE TABLE "Conversation" (
     "firstResponseDueAt" DATETIME,
     "nextFollowUpAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
+    "updatedAt" DATETIME NOT NULL, "businessStatus" TEXT,
     CONSTRAINT "Conversation_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "Conversation_assignedUserId_fkey" FOREIGN KEY ("assignedUserId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
@@ -92,6 +92,19 @@ CREATE TABLE "ConversationAssignment" (
     CONSTRAINT "ConversationAssignment_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "ConversationAssignment_assignedUserId_fkey" FOREIGN KEY ("assignedUserId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "ConversationAssignment_assignedByUserId_fkey" FOREIGN KEY ("assignedByUserId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- TABLE: ConversationStatusConfig
+CREATE TABLE "ConversationStatusConfig" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "code" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "color" TEXT NOT NULL DEFAULT '#64748b',
+    "isFinal" BOOLEAN NOT NULL DEFAULT false,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
 );
 
 -- TABLE: Message
@@ -129,14 +142,17 @@ CREATE TABLE "Notification" (
 CREATE TABLE "Quote" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "clientId" TEXT NOT NULL,
+    "conversationId" TEXT,
     "origin" TEXT NOT NULL,
     "destination" TEXT NOT NULL,
     "volume" REAL,
     "price" REAL,
+    "externalId" TEXT,
     "status" TEXT NOT NULL DEFAULT 'PENDING',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "Quote_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "Quote_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "Quote_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- TABLE: SlaPolicy
@@ -167,6 +183,22 @@ CREATE TABLE "User" (
     "availabilityStatus" TEXT NOT NULL DEFAULT 'AVAILABLE',
     "maxActiveConversations" INTEGER NOT NULL DEFAULT 20,
     "lastAssignedAt" DATETIME,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "tokenVersion" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- TABLE: WebhookEvent
+CREATE TABLE "WebhookEvent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "direction" TEXT NOT NULL,
+    "event" TEXT NOT NULL,
+    "payload" TEXT NOT NULL DEFAULT '{}',
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "lastError" TEXT,
+    "lastAttemptAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
 );
@@ -185,6 +217,9 @@ CREATE INDEX "ConversationAssignment_assignedUserId_releasedAt_idx" ON "Conversa
 
 -- INDEX: ConversationAssignment_conversationId_assignedAt_idx
 CREATE INDEX "ConversationAssignment_conversationId_assignedAt_idx" ON "ConversationAssignment"("conversationId", "assignedAt");
+
+-- INDEX: ConversationStatusConfig_code_key
+CREATE UNIQUE INDEX "ConversationStatusConfig_code_key" ON "ConversationStatusConfig"("code");
 
 -- INDEX: Conversation_assignedUserId_status_idx
 CREATE INDEX "Conversation_assignedUserId_status_idx" ON "Conversation"("assignedUserId", "status");
@@ -207,5 +242,14 @@ CREATE INDEX "Notification_role_readAt_createdAt_idx" ON "Notification"("role", 
 -- INDEX: Notification_userId_readAt_createdAt_idx
 CREATE INDEX "Notification_userId_readAt_createdAt_idx" ON "Notification"("userId", "readAt", "createdAt");
 
+-- INDEX: Quote_conversationId_idx
+CREATE INDEX "Quote_conversationId_idx" ON "Quote"("conversationId");
+
+-- INDEX: Quote_externalId_key
+CREATE UNIQUE INDEX "Quote_externalId_key" ON "Quote"("externalId");
+
 -- INDEX: User_email_key
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+
+-- INDEX: WebhookEvent_direction_status_createdAt_idx
+CREATE INDEX "WebhookEvent_direction_status_createdAt_idx" ON "WebhookEvent"("direction", "status", "createdAt");

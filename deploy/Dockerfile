@@ -55,5 +55,5 @@ COPY --from=frontend-builder /app/frontend/dist ./public
 # Expose port
 EXPOSE 3000
 
-# Start command
-CMD ["npm", "run", "start"]
+# Start command: apply pending Prisma migrations, then boot the server.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]

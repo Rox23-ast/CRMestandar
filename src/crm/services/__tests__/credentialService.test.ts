@@ -8,15 +8,21 @@ beforeAll(() => {
   process.env.CREDENTIALS_ENCRYPTION_KEY = 'a'.repeat(64);
   process.env.WA_API_TOKEN = 'test_wa_token';
   process.env.WA_VERIFY_TOKEN = 'test_verify_token';
-  process.env.WA_PHONE_NUMBER_ID = '123456789';
+  process.env.WA_PHONE_NUMBER_ID = 'test_phone_id';
   process.env.WA_APP_SECRET = 'test_app_secret';
   process.env.OPENAI_API_KEY = 'sk-test_openai_key';
   process.env.ANTHROPIC_API_KEY = 'sk-ant-test_key';
   process.env.GEMINI_API_KEY = 'AIza-test_key';
+  process.env.CRM_WEBHOOK_URL = 'https://cotizador.example/api/webhooks/mudanzas-chico';
+  process.env.CRM_WEBHOOK_SECRET = 'b'.repeat(64);
 });
 
 afterAll(() => {
   process.env = originalEnv;
+});
+
+afterAll(async () => {
+  await prisma.storedCredential.deleteMany();
 });
 
 beforeEach(() => {
@@ -34,11 +40,13 @@ describe('credentialService', () => {
       // maskValue shows first 4 + stars + last 4
       expect(creds.WA_API_TOKEN).toBe('test*****oken');           // test_wa_token (13 chars)
       expect(creds.WA_VERIFY_TOKEN).toBe('test*********oken');    // test_verify_token (17 chars)
-      expect(creds.WA_PHONE_NUMBER_ID).toBe('1234*6789');         // 123456789 (9 chars)
+      expect(creds.WA_PHONE_NUMBER_ID).toBe('test*****e_id');    // test_phone_id (13 chars)
       expect(creds.WA_APP_SECRET).toBe('test*******cret');        // test_app_secret (15 chars)
       expect(creds.OPENAI_API_KEY).toBe('sk-t**********_key');    // sk-test_openai_key (18 chars)
       expect(creds.ANTHROPIC_API_KEY).toBe('sk-a*******_key');    // sk-ant-test_key (15 chars)
       expect(creds.GEMINI_API_KEY).toBe('AIza*****_key');         // AIza-test_key (13 chars)
+      expect(creds.CRM_WEBHOOK_URL).toBe('http' + '*'.repeat(45) + 'hico');
+      expect(creds.CRM_WEBHOOK_SECRET).toBe('bbbb' + '*'.repeat(56) + 'bbbb'); // 64 chars
     });
 
     it('should return masked values from database when stored', async () => {
@@ -71,11 +79,13 @@ describe('credentialService', () => {
       const creds = await getRawCredentials();
       expect(creds.WA_API_TOKEN).toBe('test_wa_token');
       expect(creds.WA_VERIFY_TOKEN).toBe('test_verify_token');
-      expect(creds.WA_PHONE_NUMBER_ID).toBe('123456789');
+      expect(creds.WA_PHONE_NUMBER_ID).toBe('test_phone_id');
       expect(creds.WA_APP_SECRET).toBe('test_app_secret');
       expect(creds.OPENAI_API_KEY).toBe('sk-test_openai_key');
       expect(creds.ANTHROPIC_API_KEY).toBe('sk-ant-test_key');
       expect(creds.GEMINI_API_KEY).toBe('AIza-test_key');
+      expect(creds.CRM_WEBHOOK_URL).toBe('https://cotizador.example/api/webhooks/mudanzas-chico');
+      expect(creds.CRM_WEBHOOK_SECRET).toBe('b'.repeat(64));
     });
 
     it('should return unmasked values from database when stored', async () => {
@@ -87,6 +97,8 @@ describe('credentialService', () => {
         OPENAI_API_KEY: 'sk-stored_openai_key',
         ANTHROPIC_API_KEY: 'sk-ant-stored_key',
         GEMINI_API_KEY: 'AIza-stored_key',
+        CRM_WEBHOOK_URL: 'https://cotizador.example/api/webhooks/mudanzas-chico',
+        CRM_WEBHOOK_SECRET: 'c'.repeat(64),
       };
       const plain = JSON.stringify(testCreds);
       const { data, iv, tag } = encrypt(plain);
@@ -94,6 +106,25 @@ describe('credentialService', () => {
 
       const creds = await getRawCredentials();
       expect(creds).toEqual(testCreds);
+    });
+
+    it('should backfill missing webhook fields on legacy records', async () => {
+      const legacyCreds = {
+        WA_API_TOKEN: 'legacy_token',
+        WA_VERIFY_TOKEN: 'legacy_verify',
+        WA_PHONE_NUMBER_ID: '111',
+        WA_APP_SECRET: 'legacy_secret',
+        OPENAI_API_KEY: 'sk-legacy',
+        ANTHROPIC_API_KEY: 'sk-ant-legacy',
+        GEMINI_API_KEY: 'AIza-legacy',
+      };
+      const { data, iv, tag } = encrypt(JSON.stringify(legacyCreds));
+      await prisma.storedCredential.create({ data: { id: 'default', data, iv, tag } });
+
+      const creds = await getRawCredentials();
+      expect(creds.WA_API_TOKEN).toBe('legacy_token');
+      expect(creds.CRM_WEBHOOK_URL).toBe('');
+      expect(creds.CRM_WEBHOOK_SECRET).toBe('');
     });
   });
 
@@ -125,6 +156,8 @@ describe('credentialService', () => {
         OPENAI_API_KEY: 'sk-key1',
         ANTHROPIC_API_KEY: 'sk-ant-key1',
         GEMINI_API_KEY: 'AIza-key1',
+        CRM_WEBHOOK_URL: 'https://old.example/hook',
+        CRM_WEBHOOK_SECRET: 'd'.repeat(64),
       });
       
       await saveCredentials({ WA_API_TOKEN: 'token2' });
@@ -137,6 +170,22 @@ describe('credentialService', () => {
       expect(creds.OPENAI_API_KEY).toBe('sk-key1');
       expect(creds.ANTHROPIC_API_KEY).toBe('sk-ant-key1');
       expect(creds.GEMINI_API_KEY).toBe('AIza-key1');
+      expect(creds.CRM_WEBHOOK_URL).toBe('https://old.example/hook');
+      expect(creds.CRM_WEBHOOK_SECRET).toBe('d'.repeat(64));
+    });
+
+    it('should save the cotizador webhook connection', async () => {
+      await saveCredentials({
+        CRM_WEBHOOK_URL: 'https://cotizador.example/api/webhooks/mudanzas-chico',
+        CRM_WEBHOOK_SECRET: 'e'.repeat(64),
+      });
+
+      const creds = await getRawCredentials();
+      expect(creds.CRM_WEBHOOK_URL).toBe('https://cotizador.example/api/webhooks/mudanzas-chico');
+      expect(creds.CRM_WEBHOOK_SECRET).toBe('e'.repeat(64));
+
+      const masked = await getCredentials();
+      expect(masked.CRM_WEBHOOK_SECRET).toBe('eeee' + '*'.repeat(56) + 'eeee');
     });
   });
 
@@ -169,6 +218,8 @@ describe('credentialService', () => {
       delete emptyEnv.OPENAI_API_KEY;
       delete emptyEnv.ANTHROPIC_API_KEY;
       delete emptyEnv.GEMINI_API_KEY;
+      delete emptyEnv.CRM_WEBHOOK_URL;
+      delete emptyEnv.CRM_WEBHOOK_SECRET;
       
       // Reset DB
       await prisma.storedCredential.deleteMany();
@@ -181,6 +232,8 @@ describe('credentialService', () => {
       process.env.OPENAI_API_KEY = '';
       process.env.ANTHROPIC_API_KEY = '';
       process.env.GEMINI_API_KEY = '';
+      process.env.CRM_WEBHOOK_URL = '';
+      process.env.CRM_WEBHOOK_SECRET = '';
       
       await seedFromEnv();
       
