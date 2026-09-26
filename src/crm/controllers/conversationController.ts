@@ -104,7 +104,7 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
     const finalStatuses = await prisma.conversationStatusConfig.findMany({ where: { isFinal: true, isActive: true } });
     const finalCodes = finalStatuses.map(s => s.code);
     if (finalCodes.length > 0) {
-      where.businessStatus = { notIn: [...finalCodes, null] };
+      where.businessStatus = { notIn: finalCodes, not: null };
     }
   }
 
