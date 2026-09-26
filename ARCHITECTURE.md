@@ -90,10 +90,12 @@ El despliegue Docker usa una etapa independiente para instalar las dependencias 
 
 ### 6.1 Dominio, HTTPS y Webhook de Meta
 
-- **Dominio:** `cotizador.chicologistica.com` (registro DNS `A` → IP del droplet).
+- **Dominio:** `cotizador.chicologistica.com` (registro DNS `A` → IP del droplet). El panel CRM y el cotizador **comparten este dominio**: el CRM queda en `https://cotizador.chicologistica.com/crm/` (la raíz redirige `301` a `/crm/`) y el cotizador en `https://cotizador.chicologistica.com/cotizador/`.
 - **TLS:** certificado **Let's Encrypt** emitido con `certbot certonly --standalone`; los archivos viven en `/etc/letsencrypt/live/cotizador.chicologistica.com/` y se montan de solo lectura en el contenedor Nginx (`/etc/letsencrypt:/etc/letsencrypt:ro`).
 - **Nginx:** `server_name cotizador.chicologistica.com`; el puerto 80 redirige `301` a HTTPS y el 443 sirve con el certificado. Meta exige HTTPS con certificado de CA confiable (los autofirmados se rechazan).
+- **Ruteo por rutas (un solo Nginx):** `/crm` → `app:3000` (panel + assets); `/api/crm/`, `/api/bot/`, `/api/integrations/`, `/health` → `app:3000`; `/cotizador/` → contenedor `cotizador-web`; `/api/webhooks/` y `/api/quotes` → contenedor `cotizador-api:3001`. Los upstreams del cotizador usan `resolver 127.0.0.11` + variable, así Nginx arranca aunque el stack del cotizador esté caído (responde 502 solo en sus rutas). Ambos stacks comparten la red `deploy_mudanzas_net`.
 - **Webhook de Meta:** `https://cotizador.chicologistica.com/api/bot/webhook` (GET verifica con `WA_VERIFY_TOKEN`; POST valida `x-hub-signature-256` con `WA_APP_SECRET`).
+- **Webhook del cotizador:** `https://cotizador.chicologistica.com/api/webhooks/mudanzas-chico` (entrante al cotizador, `CRM_WEBHOOK_URL` en el `.env` del CRM) y `https://cotizador.chicologistica.com/api/integrations/cotizador/events` (callback del cotizador hacia el CRM, `CRM_WEBHOOK_URL` en el `.env` del cotizador).
 - **Renovación automática:** el timer de certbot (`certbot.timer`) renueva cada ~90 días. Los hooks en `/etc/letsencrypt/renewal-hooks/` detienen Nginx (`pre/stop-nginx`) antes de la validación standalone (requiere puerto 80 libre) y lo levantan después (`post/start-nginx`).
 - **Firewall:** la nube de DigitalOcean requiere reglas inbound para TCP 80 y 443 (0.0.0.0/0, ::/0) además de SSH 22.
 
@@ -481,6 +483,7 @@ El `nginx.conf` base es para producción (SSL con certificados Let's Encrypt de 
 
 - `deploy/nginx.local.conf`: puerto 80 sin SSL, proxy a `app:3000`, oculta cabeceras COOP/COEP/Origin-Agent-Cluster.
 - `deploy/docker-compose.override.yml`: lo carga Compose automáticamente en local (expone además `3000:3000` del backend). En el VPS se ejecuta `docker compose -f docker-compose.yml up -d` (sin override) para usar la config con SSL.
+- **Cotizador co-desplegado:** el stack del cotizador (repo aparte) se une a la red externa `deploy_mudanzas_net` con `container_name: cotizador-api` y `cotizador-web`, sin publicar 80/443. Su API queda en el puerto interno 3001 y su web en el 80 interno (vía `VITE_BASE=/cotizador/`). El servicio `crm-mock` del cotizador es solo de desarrollo local y no se despliega en el VPS. Orden de despliegue: subir el cotizador primero, luego recargar Nginx (`nginx -s reload`); gracias al resolver por petición, el orden no es crítico.
 
 ---
 
