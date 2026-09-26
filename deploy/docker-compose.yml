@@ -39,3 +39,6 @@ volumes:
 networks:
   mudanzas_net:
     driver: bridge
+    # Nombre explícito: el stack del cotizador se une a esta red como
+    # `external: true` y Nginx resuelve cotizador-api/cotizador-web.
+    name: deploy_mudanzas_net
