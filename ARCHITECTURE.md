@@ -484,6 +484,7 @@ El `nginx.conf` base es para producción (SSL con certificados Let's Encrypt de 
 - `deploy/nginx.local.conf`: puerto 80 sin SSL, proxy a `app:3000`, oculta cabeceras COOP/COEP/Origin-Agent-Cluster.
 - `deploy/docker-compose.override.yml`: lo carga Compose automáticamente en local (expone además `3000:3000` del backend). En el VPS se ejecuta `docker compose -f docker-compose.yml up -d` (sin override) para usar la config con SSL.
 - **Cotizador co-desplegado:** el stack del cotizador (repo aparte) se une a la red externa `deploy_mudanzas_net` con `container_name: cotizador-api` y `cotizador-web`, sin publicar 80/443. Su API queda en el puerto interno 3001 y su web en el 80 interno (vía `VITE_BASE=/cotizador/`). El servicio `crm-mock` del cotizador es solo de desarrollo local y no se despliega en el VPS. Orden de despliegue: subir el cotizador primero, luego recargar Nginx (`nginx -s reload`); gracias al resolver por petición, el orden no es crítico.
+- **Script de despliegue:** `deploy/deploy.sh` automatiza el VPS: `git pull --ff-only`, compila y recrea el backend (`up -d --build app`, el contenedor ejecuta `prisma migrate deploy` al arrancar), recarga Nginx (`nginx -t` + `nginx -s reload`), verifica `https://127.0.0.1/health` y opcionalmente despliega el cotizador con `./deploy.sh --cotizador <dir>`. Requiere `.env` en la raíz del repo en el servidor.
 
 ---
 
