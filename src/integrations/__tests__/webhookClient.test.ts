@@ -20,6 +20,8 @@ const mockGetRawCredentials = getRawCredentials as jest.Mock;
 
 const SECRET = 'd'.repeat(64);
 const URL = 'https://cotizador.example/api/webhooks/mudanzas-chico';
+const CONVERSATION_ID = '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60';
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -45,7 +47,7 @@ describe('integrations - webhookClient', () => {
 
     await emitQuoteRequested({
       client: { phone: '57300', name: null },
-      conversationId: 'conv-1',
+      conversationId: CONVERSATION_ID,
       message: 'hola'
     });
 
@@ -57,7 +59,7 @@ describe('integrations - webhookClient', () => {
   it('creates the audit record and delivers with a valid signature', async () => {
     await emitQuoteRequested({
       client: { phone: '57300', name: 'Ana' },
-      conversationId: 'conv-1',
+      conversationId: CONVERSATION_ID,
       message: 'Quiero cotizar'
     });
     await flush();
@@ -84,6 +86,24 @@ describe('integrations - webhookClient', () => {
     );
   });
 
+  it('emits a UUID event id and converts an unknown client name to empty string', async () => {
+    await emitQuoteRequested({
+      client: { phone: '57300', name: null },
+      conversationId: CONVERSATION_ID,
+      message: 'hola'
+    });
+    await flush();
+
+    const auditCall = mockPrisma.webhookEvent.create.mock.calls[0][0];
+    expect(auditCall.data.id).toMatch(UUID_V4);
+
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe(URL);
+    const body = JSON.parse(init.body);
+    expect(body.id).toBe(auditCall.data.id);
+    expect(body.data.client.name).toBe('');
+  });
+
   it('records a failed attempt and retries in the background', async () => {
     jest.useFakeTimers();
     (global.fetch as jest.Mock)
@@ -93,7 +113,7 @@ describe('integrations - webhookClient', () => {
 
     await emitQuoteRequested({
       client: { phone: '57300', name: null },
-      conversationId: 'conv-1',
+      conversationId: CONVERSATION_ID,
       message: 'cotizar'
     });
 
@@ -122,7 +142,7 @@ describe('integrations - webhookClient', () => {
 
     await emitQuoteRequested({
       client: { phone: '57300', name: null },
-      conversationId: 'conv-1',
+      conversationId: CONVERSATION_ID,
       message: 'cotizar'
     });
 
@@ -146,7 +166,7 @@ describe('integrations - webhookClient', () => {
     await expect(
       emitQuoteRequested({
         client: { phone: '57300', name: null },
-        conversationId: 'conv-1',
+        conversationId: CONVERSATION_ID,
         message: 'cotizar'
       })
     ).resolves.toBeUndefined();

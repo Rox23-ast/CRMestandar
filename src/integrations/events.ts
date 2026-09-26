@@ -4,13 +4,13 @@ import { z } from 'zod';
 
 const eventEnvelope = {
   version: z.literal(1),
-  id: z.string().min(1).max(100),
+  id: z.string().uuid(),
   timestamp: z.string().min(1).max(40),
 };
 
 const clientSchema = z.object({
   phone: z.string().min(1).max(50),
-  name: z.string().max(200).nullable().optional(),
+  name: z.string().max(200),
 });
 
 export const quoteRequestedSchema = z.object({
@@ -18,7 +18,7 @@ export const quoteRequestedSchema = z.object({
   ...eventEnvelope,
   data: z.object({
     client: clientSchema,
-    conversationId: z.string().min(1).max(100),
+    conversationId: z.string().uuid(),
     message: z.string().min(1).max(4000),
   }),
 });
@@ -28,7 +28,7 @@ export const quoteCapturedSchema = z.object({
   ...eventEnvelope,
   data: z.object({
     client: clientSchema,
-    conversationId: z.string().min(1).max(100),
+    conversationId: z.string().uuid(),
     quote: z.object({
       origin: z.string().min(1).max(300),
       destination: z.string().min(1).max(300),

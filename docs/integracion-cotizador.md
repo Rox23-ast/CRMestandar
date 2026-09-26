@@ -54,7 +54,7 @@ Se envía cuando la IA detecta `intent: "QUOTE"` en un mensaje del cliente.
 {
   "event": "quote.requested",
   "version": 1,
-  "id": "evt_01H8XK3M9ZQ4W7V2T6Y5B8N1",
+  "id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   "timestamp": "2026-09-21T14:30:00.000Z",
   "data": {
     "client": {
@@ -70,11 +70,13 @@ Se envía cuando la IA detecta `intent: "QUOTE"` en un mensaje del cliente.
 #### Evento `quote.captured`
 Se envía cuando el bot completa la captura de origen, destino y volumen (estado `QUOTE_VOLUME` → `AGENT_HANDOFF`).
 
+Notas del contrato (fuente: `packages/contract` del cotizador): `id` y `conversationId` son **UUID** (el `conversationId` es el `id` de nuestra `Conversation`, UUID por esquema); `client.name` va como `""` cuando el cliente no tiene nombre guardado (la identidad es el teléfono).
+
 ```json
 {
   "event": "quote.captured",
   "version": 1,
-  "id": "evt_01H8XK4B2P8A6C5D9E7F0G2",
+  "id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
   "timestamp": "2026-09-21T14:35:00.000Z",
   "data": {
     "client": {
@@ -100,7 +102,7 @@ El cotizador lo envía cuando una cotización cambia de estado, para que el bot 
 {
   "event": "quote.status.updated",
   "version": 1,
-  "id": "evt_01H8XK5C4Q9B7D6E8F1G3H4",
+  "id": "c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f",
   "timestamp": "2026-09-22T09:00:00.000Z",
   "data": {
     "conversationId": "uuid-de-la-conversacion",
@@ -151,7 +153,8 @@ El flujo del bot **ahora persiste** origen/destino/volumen en `Client` durante l
    - Captura en `QUOTE_ORIGIN`/`QUOTE_DESTINATION`/`QUOTE_VOLUME` → persiste en `Client`, crea `Quote` y emite `quote.captured`.
 5. ✅ **Callback** `POST /api/integrations/cotizador/events` — firma, Zod, dedup, mapeo a `Quote`, notificación WhatsApp en ACCEPTED/REJECTED.
 6. ✅ **Configuración:** `CRM_WEBHOOK_URL` y `CRM_WEBHOOK_SECRET` en `.env`/`.env.example` **y** en el panel CRM (Configuración de APIs).
-7. ✅ **Tests:** firma, schemas, callback (401/400/503/200/dedup), webhook client, conversationFlow, credentials (99/99).
+7. ✅ **Tests:** firma, schemas, callback (401/400/503/200/dedup), webhook client, conversationFlow, credentials (101/101).
+8. ✅ **E2E local (Docker):** verificado contra el cotizador real — `quote.requested` crea su fila PENDING → `quote.captured` aplica origen/destino/volumen → PATCH `ACCEPTED`+precio en su API → su outbox entrega `quote.status.updated` → el CRM marca la `Quote` ACCEPTED con precio y `externalId`, `WebhookEvent` INBOUND PROCESSED y notifica por WhatsApp (falla degradada si las credenciales de Meta no son válidas).
 
 ## 6. Respuestas a las preguntas del contrato (§ previo)
 

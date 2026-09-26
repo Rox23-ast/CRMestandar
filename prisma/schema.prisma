@@ -233,7 +233,7 @@ model Quote {
 // Signed webhook traffic: outbound deliveries (with retries) and inbound
 // callbacks (deduplicated by event id).
 model WebhookEvent {
-  id            String    @id // Event id (evt_...)
+  id            String    @id // Event id (UUID)
   direction     String // INBOUND | OUTBOUND
   event         String // quote.requested | quote.captured | quote.status.updated
   payload       String    @default("{}")

@@ -8,7 +8,7 @@ import {
 describe('integrations - event schemas', () => {
   const envelope = {
     version: 1,
-    id: 'evt_01H8XK3M9ZQ4W7V2T6Y5B8N1',
+    id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
     timestamp: '2026-09-21T14:30:00.000Z'
   };
 
@@ -19,7 +19,7 @@ describe('integrations - event schemas', () => {
         ...envelope,
         data: {
           client: { phone: '573001112233', name: 'María Pérez' },
-          conversationId: 'conv-uuid',
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
           message: 'Quiero cotizar una mudanza de Bogotá a Medellín'
         }
       });
@@ -31,8 +31,8 @@ describe('integrations - event schemas', () => {
         event: 'quote.requested',
         ...envelope,
         data: {
-          client: { phone: '573001112233' },
-          conversationId: 'conv-uuid',
+          client: { phone: '573001112233', name: '' },
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
           message: ''
         }
       });
@@ -46,8 +46,8 @@ describe('integrations - event schemas', () => {
         event: 'quote.captured',
         ...envelope,
         data: {
-          client: { phone: '573001112233', name: null },
-          conversationId: 'conv-uuid',
+          client: { phone: '573001112233', name: '' },
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
           quote: { origin: 'Bogotá', destination: 'Medellín', volumeM3: 12.5 }
         }
       });
@@ -59,12 +59,25 @@ describe('integrations - event schemas', () => {
         event: 'quote.captured',
         ...envelope,
         data: {
-          client: { phone: '573001112233' },
-          conversationId: 'conv-uuid',
+          client: { phone: '573001112233', name: '' },
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
           quote: { origin: 'Bogotá', destination: 'Medellín' }
         }
       });
       expect(result.success).toBe(true);
+    });
+
+    it('rejects a null client name (empty string is the contract for unknown names)', () => {
+      const result = quoteCapturedSchema.safeParse({
+        event: 'quote.captured',
+        ...envelope,
+        data: {
+          client: { phone: '573001112233', name: null },
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
+          quote: { origin: 'Bogotá', destination: 'Medellín', volumeM3: 12.5 }
+        }
+      });
+      expect(result.success).toBe(false);
     });
 
     it('rejects negative volume', () => {
@@ -72,8 +85,8 @@ describe('integrations - event schemas', () => {
         event: 'quote.captured',
         ...envelope,
         data: {
-          client: { phone: '573001112233' },
-          conversationId: 'conv-uuid',
+          client: { phone: '573001112233', name: '' },
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
           quote: { origin: 'Bogotá', destination: 'Medellín', volumeM3: -1 }
         }
       });
@@ -85,8 +98,8 @@ describe('integrations - event schemas', () => {
         event: 'quote.captured',
         ...envelope,
         data: {
-          client: { phone: '573001112233' },
-          conversationId: 'conv-uuid',
+          client: { phone: '573001112233', name: '' },
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
           quote: { origin: '', destination: 'Medellín', volumeM3: 5 }
         }
       });
@@ -100,7 +113,7 @@ describe('integrations - event schemas', () => {
         event: 'quote.status.updated',
         ...envelope,
         data: {
-          conversationId: 'conv-uuid',
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
           quoteExternalId: 'qz-123',
           status: 'ACCEPTED',
           price: 850000
@@ -114,7 +127,7 @@ describe('integrations - event schemas', () => {
         event: 'quote.status.updated',
         ...envelope,
         data: {
-          conversationId: 'conv-uuid',
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
           quoteExternalId: 'qz-123',
           status: 'REJECTED'
         }
@@ -127,7 +140,7 @@ describe('integrations - event schemas', () => {
         event: 'quote.status.updated',
         ...envelope,
         data: {
-          conversationId: 'conv-uuid',
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
           quoteExternalId: 'qz-123',
           status: 'CANCELLED'
         }

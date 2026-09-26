@@ -17,7 +17,7 @@ const MAX_ATTEMPTS = 5;
 const REQUEST_TIMEOUT_MS = 10_000;
 
 const newEventId = (): string =>
-  `evt_${crypto.randomBytes(16).toString('hex')}`;
+  crypto.randomUUID();
 
 const postEvent = async (url: string, body: string, secret: string): Promise<void> => {
   const controller = new AbortController();
@@ -125,7 +125,7 @@ export const emitQuoteRequested = async (input: QuoteRequestedInput): Promise<vo
     id: newEventId(),
     timestamp: new Date().toISOString(),
     data: {
-      client: { phone: input.client.phone, name: input.client.name ?? null },
+      client: { phone: input.client.phone, name: input.client.name ?? '' },
       conversationId: input.conversationId,
       message: input.message
     }
@@ -145,7 +145,7 @@ export const emitQuoteCaptured = async (input: QuoteCapturedInput): Promise<void
     id: newEventId(),
     timestamp: new Date().toISOString(),
     data: {
-      client: { phone: input.client.phone, name: input.client.name ?? null },
+      client: { phone: input.client.phone, name: input.client.name ?? '' },
       conversationId: input.conversationId,
       quote: {
         origin: input.quote.origin,

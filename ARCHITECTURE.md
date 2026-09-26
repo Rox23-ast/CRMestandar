@@ -455,7 +455,7 @@ Tests unitarios en `src/crm/services/__tests__/leadService.test.ts` (9 tests):
 - Retorna cliente sin cotización
 - Retorna cliente sin conversación activa
 
-Total de tests: 99/99 pasan (incluye suites de integración del cotizador: firma, eventos, callback —con casos 401/400/503/200/dedup—, webhook client, conversationFlow y credentials, que además limpia la DB de dev al terminar el suite).
+Total de tests: 101/101 pasan (incluye suites de integración del cotizador: firma, eventos, callback —con casos 401/400/503/200/dedup—, webhook client, conversationFlow y credentials, que además limpia la DB de dev al terminar el suite). Verificado además con E2E local en Docker contra el cotizador real (requested→captured→PATCH→callback→Quote ACCEPTED).
 
 ---
 

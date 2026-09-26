@@ -37,10 +37,12 @@ const mockSendWhatsApp = sendWhatsAppMessage as jest.Mock;
 
 const SECRET = 'c'.repeat(64);
 
+const EVENT_ID = 'd4e5f6a7-b8c9-4d0e-9f2a-3b4c5d6e7f80';
+
 const buildEvent = (overrides: Record<string, unknown> = {}) => ({
   event: 'quote.status.updated',
   version: 1,
-  id: 'evt_callback_1',
+  id: EVENT_ID,
   timestamp: new Date().toISOString(),
   data: {
     conversationId: 'conv-1',
@@ -228,7 +230,7 @@ describe('POST /api/integrations/cotizador/events', () => {
     await receiveCotizadorEvent(signedReq(body), res);
 
     expect(res.status).toHaveBeenCalledWith(500);
-    expect(mockPrisma.webhookEvent.delete).toHaveBeenCalledWith({ where: { id: 'evt_callback_1' } });
+    expect(mockPrisma.webhookEvent.delete).toHaveBeenCalledWith({ where: { id: EVENT_ID } });
   });
 
   it('acknowledges unknown event types with 200 (ignored)', async () => {
