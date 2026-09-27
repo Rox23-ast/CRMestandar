@@ -160,34 +160,39 @@ describe('leadService', () => {
       );
     });
 
-    it('restricts agent to clients with at least one assigned conversation', async () => {
+    it('shows agents their assigned conversations plus web-born leads', async () => {
       mockPrisma.client.findMany.mockResolvedValue([]);
       mockPrisma.client.count.mockResolvedValue(0);
 
       await listLeads({ page: 1, pageSize: 20 }, agentUser);
 
-      expect(mockPrisma.client.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            conversations: {
-              some: expect.objectContaining({
-                assignedUserId: 'agent-1',
-              }),
-            },
-          }),
-        })
-      );
-      expect(mockPrisma.client.count).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            conversations: {
-              some: expect.objectContaining({
-                assignedUserId: 'agent-1',
-              }),
-            },
-          }),
-        })
-      );
+      const findManyCall = mockPrisma.client.findMany.mock.calls[0][0];
+      expect(findManyCall.where.OR).toEqual([
+        {
+          conversations: {
+            some: expect.objectContaining({
+              assignedUserId: 'agent-1',
+              businessStatus: { notIn: ['FINALIZADO'], not: null },
+            }),
+          },
+        },
+        { quotes: { some: { source: 'WEB' } } },
+      ]);
+      const countCall = mockPrisma.client.count.mock.calls[0][0];
+      expect(countCall.where.OR).toEqual(expect.arrayContaining([{ quotes: { some: { source: 'WEB' } } }]));
+    });
+
+    it('filters agents by businessStatus without leaking web leads', async () => {
+      mockPrisma.client.findMany.mockResolvedValue([]);
+      mockPrisma.client.count.mockResolvedValue(0);
+
+      await listLeads({ page: 1, pageSize: 20, businessStatus: 'PENDIENTE_COTIZACION' }, agentUser);
+
+      const findManyCall = mockPrisma.client.findMany.mock.calls[0][0];
+      expect(findManyCall.where.OR).toBeUndefined();
+      expect(findManyCall.where.conversations).toEqual({
+        some: expect.objectContaining({ businessStatus: 'PENDIENTE_COTIZACION' }),
+      });
     });
 
     it('returns client without quote when hasQuote=false', async () => {

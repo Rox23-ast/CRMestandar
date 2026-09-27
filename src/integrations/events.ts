@@ -42,11 +42,34 @@ export const quoteStatusUpdatedSchema = z.object({
   event: z.literal('quote.status.updated'),
   ...eventEnvelope,
   data: z.object({
-    conversationId: z.string().min(1).max(100),
+    // Present only for bot-born quotes; web-born quotes omit it and are
+    // resolved via quoteExternalId (+ client when the CRM must create the row).
+    conversationId: z.string().uuid().nullable().optional(),
     quoteExternalId: z.string().min(1).max(100),
     status: z.enum(['PENDING', 'ACCEPTED', 'REJECTED']),
     // Price is only guaranteed on ACCEPTED; other statuses may omit it.
     price: z.number().nonnegative().nullable().optional(),
+    // Optional during rollout: lets the CRM resolve quotes it has never seen
+    // (late arrival) without relying on conversationId.
+    client: clientSchema.optional(),
+  }),
+});
+
+export const quoteCreatedSchema = z.object({
+  event: z.literal('quote.created'),
+  ...eventEnvelope,
+  data: z.object({
+    quoteExternalId: z.string().min(1).max(100),
+    client: clientSchema,
+    quote: z.object({
+      origin: z.string().min(1).max(300).optional(),
+      destination: z.string().min(1).max(300).optional(),
+      // Volume in cubic meters, max 2 decimal places (rounded by the emitter).
+      volumeM3: z.number().nonnegative().max(100000).optional(),
+      price: z.number().nonnegative().nullable().optional(),
+    }).optional(),
+    status: z.enum(['PENDING', 'ACCEPTED', 'REJECTED']).optional(),
+    createdAt: z.string().min(1).max(40).optional(),
   }),
 });
 
@@ -62,4 +85,5 @@ export const eventEnvelopeSchema = z.object({
 export type QuoteRequestedEvent = z.infer<typeof quoteRequestedSchema>;
 export type QuoteCapturedEvent = z.infer<typeof quoteCapturedSchema>;
 export type QuoteStatusUpdatedEvent = z.infer<typeof quoteStatusUpdatedSchema>;
+export type QuoteCreatedEvent = z.infer<typeof quoteCreatedSchema>;
 export type OutboundEvent = QuoteRequestedEvent | QuoteCapturedEvent;

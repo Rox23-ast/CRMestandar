@@ -272,10 +272,11 @@ El cotizador es un **desarrollo aparte** (sistema completo con su propia UI, usu
 
 ### 9.2 Entrante (callback cotizador → backend)
 
-- `POST /api/integrations/cotizador/events` recibe `quote.status.updated` (registrado junto al webhook de Meta, **antes** del rate limiter global; protegido por HMAC en vez de rate-limit).
+- `POST /api/integrations/cotizador/events` recibe `quote.status.updated` y `quote.created` (registrado junto al webhook de Meta, **antes** del rate limiter global; protegido por HMAC en vez de rate-limit).
 - Validación en orden: carga de credenciales (si no se pueden descifrar o `CRM_WEBHOOK_SECRET` no está configurado responde **503** reintentable, con log del error) → firma HMAC (`X-Mudanzas-Signature: t=<unix>,v1=<hex>`, ventana anti-replay de 5 min, `timingSafeEqual`) → envelope Zod → payload Zod → dedup por `event.id` (constraint único en `WebhookEvent`; si el procesamiento falla se libera el marcador para que el reintento del emisor pueda repetirlo).
-- Mapeo a `Quote`: busca por `externalId` o `conversationId`, actualiza `externalId`, `status` y `price` (si viene). Si no existe `Quote` local, responde 200 con warning (sin crear registros inválidos).
-- Notificación al cliente: en `ACCEPTED` (con precio formateado `es-CO`) o `REJECTED` el bot envía WhatsApp y registra el mensaje como outbound en la conversación. `PENDING` no notifica.
+- **`quote.created` (leads web):** upsert de `Client` por `phone` y creación idempotente de `Quote` por `externalId` con `source: 'WEB'` (origen/destino/volumen/precio opcionales). Sincroniza al CRM las cotizaciones creadas en la web del cotizador, sin conversación.
+- **`quote.status.updated`:** matching en 3 pasos — 1) por `externalId`, 2) por `conversationId`, 3) si no existe `Quote` local y el evento trae `client`, crea `Client` + `Quote` "tardía" (`source: 'WEB'`, o `'BOT'` si trae `conversationId`). Si no existe y no hay `client`, responde 200 con warning (sin crear registros inválidos).
+- **Notificación:** con `conversationId` → WhatsApp normal en `ACCEPTED`/`REJECTED` (precio formateado `es-CO`), `PENDING` no notifica. Sin `conversationId` (leads web) → si el cliente tiene conversación activa con `lastMessageAt` ≤ 24h se le envía WhatsApp; si no, se crean notificaciones internas (`Notification` rol `ADMIN` y `MARKETING_DIRECTOR`, tipo `QUOTE_WEB_STATUS`) para seguimiento manual.
 - Eventos de tipo desconocido se **acknowledgan con 200** (`ignored: true`) para evitar reintentos infinitos del emisor.
 
 ### 9.3 Seguridad y datos
@@ -283,7 +284,7 @@ El cotizador es un **desarrollo aparte** (sistema completo con su propia UI, usu
 - **Firma:** `v1 = HMAC_SHA256(secret, "v1:" + t + ":" + rawBody)`; mismo secreto en ambos sistemas (`CRM_WEBHOOK_SECRET`, ≥ 32 bytes, generado con `crypto.randomBytes(32).toString('hex')`).
 - **Idempotencia:** `event.id` único en la tabla `WebhookEvent` (dirección `INBOUND`/`OUTBOUND`, payload, status `PENDING|DELIVERED|PROCESSED|IGNORED|FAILED`, intentos y último error).
 - **Clave única del cliente:** `Client.phone` (`@unique`).
-- **Migración:** `20260924051037_add_cotizador_integration` — añade `Quote.externalId`/`Quote.conversationId`, campos de captura en `Client` y la tabla `WebhookEvent`. El Dockerfile ejecuta `npx prisma migrate deploy` antes de arrancar.
+- **Migraciones:** `20260924051037_add_cotizador_integration` — añade `Quote.externalId`/`Quote.conversationId`, campos de captura en `Client` y la tabla `WebhookEvent`. `20260927214517_add_quote_source` — añade `Quote.source` (`BOT` | `WEB`). El Dockerfile ejecuta `npx prisma migrate deploy` antes de arrancar.
 
 ---
 
@@ -457,7 +458,7 @@ Tests unitarios en `src/crm/services/__tests__/leadService.test.ts` (9 tests):
 - Retorna cliente sin cotización
 - Retorna cliente sin conversación activa
 
-Total de tests: 101/101 pasan (incluye suites de integración del cotizador: firma, eventos, callback —con casos 401/400/503/200/dedup—, webhook client, conversationFlow y credentials, que además limpia la DB de dev al terminar el suite). Verificado además con E2E local en Docker contra el cotizador real (requested→captured→PATCH→callback→Quote ACCEPTED).
+Total de tests: 113/113 pasan (incluye suites de integración del cotizador: firma, eventos, callback —con casos 401/400/503/200/dedup, quote.created y leads web—, webhook client, conversationFlow y credentials, que además limpia la DB de dev al terminar el suite). Verificado además con E2E local en Docker contra el cotizador real (requested→captured→PATCH→callback→Quote ACCEPTED).
 
 ---
 

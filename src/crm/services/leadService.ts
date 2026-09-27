@@ -85,8 +85,19 @@ export async function listLeads(query: LeadQuery, user: AuthenticatedRequest['us
   if (query.businessStatus) {
     someConversation.businessStatus = query.businessStatus;
   }
-  if (!isAdminOrMarketing || query.businessStatus) {
+  if (query.businessStatus) {
     clientWhere.conversations = { some: someConversation };
+  } else if (!isAdminOrMarketing) {
+    // Agents see their assigned conversations plus every web-born lead
+    // (quotes created in the cotizador web, which have no conversation).
+    clientWhere.OR = [
+      {
+        conversations: {
+          some: { assignedUserId: user?.id, businessStatus: { notIn: ['FINALIZADO'], not: null } }
+        }
+      },
+      { quotes: { some: { source: 'WEB' } } }
+    ];
   }
 
   const hasQuoteFilter = query.hasQuote !== undefined;
@@ -123,9 +134,7 @@ export async function listLeads(query: LeadQuery, user: AuthenticatedRequest['us
       },
     },
     orderBy: {
-      conversations: {
-        _count: 'desc',
-      },
+      updatedAt: 'desc',
     },
     skip,
     take: pageSize,

@@ -4,13 +4,15 @@ import { signPayload } from '../signature';
 import { prisma } from '../../core/database/prisma';
 import { getRawCredentials } from '../../crm/services/credentialService';
 import { recordOutboundMessage } from '../../crm/services/conversationService';
+import { createNotification } from '../../crm/services/notificationService';
 import { sendWhatsAppMessage } from '../../bot/services/whatsappService';
 
 jest.mock('../../core/database/prisma', () => ({
   prisma: {
     webhookEvent: { create: jest.fn(), delete: jest.fn() },
-    quote: { findFirst: jest.fn(), update: jest.fn() },
-    conversation: { findUnique: jest.fn() }
+    quote: { findFirst: jest.fn(), update: jest.fn(), create: jest.fn() },
+    conversation: { findUnique: jest.fn(), findFirst: jest.fn() },
+    client: { upsert: jest.fn() }
   }
 }));
 
@@ -22,22 +24,29 @@ jest.mock('../../crm/services/conversationService', () => ({
   recordOutboundMessage: jest.fn()
 }));
 
+jest.mock('../../crm/services/notificationService', () => ({
+  createNotification: jest.fn()
+}));
+
 jest.mock('../../bot/services/whatsappService', () => ({
   sendWhatsAppMessage: jest.fn()
 }));
 
 const mockPrisma = prisma as unknown as {
   webhookEvent: { create: jest.Mock; delete: jest.Mock };
-  quote: { findFirst: jest.Mock; update: jest.Mock };
-  conversation: { findUnique: jest.Mock };
+  quote: { findFirst: jest.Mock; update: jest.Mock; create: jest.Mock };
+  conversation: { findUnique: jest.Mock; findFirst: jest.Mock };
+  client: { upsert: jest.Mock };
 };
 const mockGetRawCredentials = getRawCredentials as jest.Mock;
 const mockRecordOutbound = recordOutboundMessage as jest.Mock;
 const mockSendWhatsApp = sendWhatsAppMessage as jest.Mock;
+const mockCreateNotification = createNotification as jest.Mock;
 
 const SECRET = 'c'.repeat(64);
 
 const EVENT_ID = 'd4e5f6a7-b8c9-4d0e-9f2a-3b4c5d6e7f80';
+const CONVERSATION_ID = '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60';
 
 const buildEvent = (overrides: Record<string, unknown> = {}) => ({
   event: 'quote.status.updated',
@@ -45,10 +54,24 @@ const buildEvent = (overrides: Record<string, unknown> = {}) => ({
   id: EVENT_ID,
   timestamp: new Date().toISOString(),
   data: {
-    conversationId: 'conv-1',
+    conversationId: CONVERSATION_ID,
     quoteExternalId: 'qz-ext-1',
     status: 'ACCEPTED',
     price: 850000
+  },
+  ...overrides
+});
+
+const buildCreatedEvent = (overrides: Record<string, unknown> = {}) => ({
+  event: 'quote.created',
+  version: 1,
+  id: EVENT_ID,
+  timestamp: new Date().toISOString(),
+  data: {
+    quoteExternalId: 'qz-web-1',
+    client: { phone: '573001112233', name: 'Ana Web' },
+    quote: { origin: 'Bogotá', destination: 'Medellín', volumeM3: 12.5, price: 850000 },
+    status: 'PENDING'
   },
   ...overrides
 });
@@ -94,6 +117,7 @@ beforeEach(() => {
   mockPrisma.webhookEvent.delete.mockResolvedValue({} as never);
   mockSendWhatsApp.mockResolvedValue(true as never);
   mockRecordOutbound.mockResolvedValue({} as never);
+  mockCreateNotification.mockResolvedValue({} as never);
 });
 
 describe('POST /api/integrations/cotizador/events', () => {
@@ -170,7 +194,7 @@ describe('POST /api/integrations/cotizador/events', () => {
     mockPrisma.quote.findFirst.mockResolvedValue({ id: 'local-quote-1' } as never);
     mockPrisma.quote.update.mockResolvedValue({} as never);
     mockPrisma.conversation.findUnique.mockResolvedValue({
-      id: 'conv-1',
+      id: CONVERSATION_ID,
       client: { phone: '573001112233', name: 'María' }
     } as never);
 
@@ -180,7 +204,7 @@ describe('POST /api/integrations/cotizador/events', () => {
     expect(mockPrisma.quote.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          OR: [{ externalId: 'qz-ext-1' }, { conversationId: 'conv-1' }]
+          OR: [{ externalId: 'qz-ext-1' }, { conversationId: CONVERSATION_ID }]
         }
       })
     );
@@ -193,13 +217,13 @@ describe('POST /api/integrations/cotizador/events', () => {
       expect.stringContaining('aprobada')
     );
     expect(mockRecordOutbound).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationId: 'conv-1', senderType: 'BOT' })
+      expect.objectContaining({ conversationId: CONVERSATION_ID, senderType: 'BOT' })
     );
   });
 
   it('does not notify the client for PENDING status', async () => {
     const body = buildEvent({
-      data: { conversationId: 'conv-1', quoteExternalId: 'qz-ext-1', status: 'PENDING' }
+      data: { conversationId: CONVERSATION_ID, quoteExternalId: 'qz-ext-1', status: 'PENDING' }
     });
     const res = makeRes();
     mockPrisma.quote.findFirst.mockResolvedValue({ id: 'local-quote-1' } as never);
@@ -258,5 +282,133 @@ describe('POST /api/integrations/cotizador/events', () => {
     expect(mockPrisma.quote.update).not.toHaveBeenCalled();
     expect(mockSendWhatsApp).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it('creates a Client and a WEB Quote from a valid quote.created', async () => {
+    const body = buildCreatedEvent();
+    mockPrisma.client.upsert.mockResolvedValue({ id: 'client-1', phone: '573001112233', name: 'Ana Web' } as never);
+    mockPrisma.quote.findFirst.mockResolvedValue(null as never);
+    mockPrisma.quote.create.mockResolvedValue({} as never);
+
+    const res = makeRes();
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(res.json).toHaveBeenCalledWith({ received: true });
+    expect(mockPrisma.client.upsert).toHaveBeenCalledWith({
+      where: { phone: '573001112233' },
+      update: { name: 'Ana Web' },
+      create: { phone: '573001112233', name: 'Ana Web' }
+    });
+    expect(mockPrisma.quote.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        clientId: 'client-1',
+        externalId: 'qz-web-1',
+        origin: 'Bogotá',
+        destination: 'Medellín',
+        volume: 12.5,
+        price: 850000,
+        status: 'PENDING',
+        source: 'WEB'
+      })
+    });
+  });
+
+  it('is idempotent by externalId on quote.created', async () => {
+    const body = buildCreatedEvent();
+    mockPrisma.client.upsert.mockResolvedValue({ id: 'client-1' } as never);
+    mockPrisma.quote.findFirst.mockResolvedValue({ id: 'existing-quote' } as never);
+
+    const res = makeRes();
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(res.json).toHaveBeenCalledWith({ received: true });
+    expect(mockPrisma.quote.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid quote.created payload without creating the dedup marker (400)', async () => {
+    const body = buildCreatedEvent({
+      data: { quoteExternalId: 'qz-web-1', client: { phone: '573001112233', name: 'Ana' }, status: 'NOPE' }
+    });
+    const res = makeRes();
+
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockPrisma.webhookEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates a redelivered quote.created event id (200, no reprocessing)', async () => {
+    const body = buildCreatedEvent();
+    mockPrisma.webhookEvent.create.mockRejectedValueOnce(new Error('Unique constraint')) as never;
+
+    const res = makeRes();
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(res.json).toHaveBeenCalledWith({ received: true, duplicate: true });
+    expect(mockPrisma.quote.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a late WEB Quote and internal notifications when a web status arrives first', async () => {
+    const body = buildEvent({
+      data: {
+        conversationId: null,
+        quoteExternalId: 'qz-web-1',
+        status: 'ACCEPTED',
+        price: 950000,
+        client: { phone: '573001112233', name: 'Ana Web' }
+      }
+    });
+    mockPrisma.quote.findFirst.mockResolvedValue(null as never);
+    mockPrisma.client.upsert.mockResolvedValue({ id: 'client-1', phone: '573001112233', name: 'Ana Web' } as never);
+    mockPrisma.quote.create.mockResolvedValue({} as never);
+    mockPrisma.conversation.findFirst.mockResolvedValue(null as never);
+
+    const res = makeRes();
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(res.json).toHaveBeenCalledWith({ received: true });
+    expect(mockPrisma.quote.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        clientId: 'client-1',
+        conversationId: null,
+        externalId: 'qz-web-1',
+        status: 'ACCEPTED',
+        price: 950000,
+        source: 'WEB'
+      })
+    });
+    expect(mockSendWhatsApp).not.toHaveBeenCalled();
+    expect(mockCreateNotification).toHaveBeenCalledTimes(2);
+    expect(mockCreateNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'ADMIN', type: 'QUOTE_WEB_STATUS' })
+    );
+    expect(mockCreateNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'MARKETING_DIRECTOR', type: 'QUOTE_WEB_STATUS' })
+    );
+  });
+
+  it('notifies on WhatsApp when a web quote client has a recent conversation', async () => {
+    const body = buildEvent({
+      data: {
+        conversationId: null,
+        quoteExternalId: 'qz-web-1',
+        status: 'ACCEPTED',
+        price: 950000,
+        client: { phone: '573001112233', name: 'Ana Web' }
+      }
+    });
+    mockPrisma.quote.findFirst.mockResolvedValue(null as never);
+    mockPrisma.client.upsert.mockResolvedValue({ id: 'client-1', phone: '573001112233', name: 'Ana Web' } as never);
+    mockPrisma.quote.create.mockResolvedValue({} as never);
+    mockPrisma.conversation.findFirst.mockResolvedValue({ id: 'conv-recent' } as never);
+
+    const res = makeRes();
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', expect.stringContaining('aprobada'));
+    expect(mockRecordOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv-recent', senderType: 'BOT' })
+    );
+    expect(mockCreateNotification).not.toHaveBeenCalled();
   });
 });

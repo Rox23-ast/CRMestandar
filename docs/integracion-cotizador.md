@@ -1,6 +1,6 @@
 # Integración del Cotizador — Estado Actual y Arquitectura
 
-> Documento vivo. Última actualización: 2026-09-24.
+> Documento vivo. Última actualización: 2026-09-27.
 > Describe cómo se conecta el módulo Cotizador (desarrollo externo con su propia UI y BD) con el backend de Mudanzas Chico.
 > **Estado: IMPLEMENTADO** (backend de este repo). Ver también ARCHITECTURE.md §9.
 
@@ -29,8 +29,8 @@
 ```
 Este backend (Bot + CRM) ──webhook──▶ Sistema Cotizador externo
         ▲                                      │
-        └─────────────callback opcional────────┘
-                (quote.status.updated)
+        └─────────────callback─────────────┘
+   (quote.status.updated y quote.created para leads web)
 ```
 
 ### 2.2 Configuración en este backend (`.env` o panel)
@@ -93,7 +93,7 @@ Notas del contrato (fuente: `packages/contract` del cotizador): `id` y `conversa
 }
 ```
 
-### 2.4 Evento entrante (cotizador → backend, opcional)
+### 2.4 Eventos entrantes (cotizador → backend)
 
 #### Callback `quote.status.updated`
 El cotizador lo envía cuando una cotización cambia de estado, para que el bot notifique al cliente por WhatsApp.
@@ -105,13 +105,45 @@ El cotizador lo envía cuando una cotización cambia de estado, para que el bot 
   "id": "c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f",
   "timestamp": "2026-09-22T09:00:00.000Z",
   "data": {
-    "conversationId": "uuid-de-la-conversacion",
+    "conversationId": "uuid-de-la-conversacion | null",
     "quoteExternalId": "id-en-el-sistema-cotizador",
     "status": "PENDING | ACCEPTED | REJECTED",
-    "price": 850000
+    "price": 850000,
+    "client": { "phone": "573001112233", "name": "María Pérez" }
   }
 }
 ```
+
+- `conversationId` es **opcional** (null cuando la cotización nació en la web del cotizador).
+- `client` es **opcional** (recomendado siempre): permite al CRM resolver cotizaciones que nunca ha visto (llegada tardía) sin depender de `conversationId`.
+- **Matching en el CRM (3 pasos):** 1) por `quoteExternalId`, 2) por `conversationId`, 3) si no existe → crea `Client` (por teléfono) + `Quote` con `source: 'WEB'`.
+
+#### Evento `quote.created` (web → CRM)
+El cotizador lo emite al crear una cotización desde su formulario web (sin conversación). Sincroniza la lead al CRM de inmediato.
+
+```json
+{
+  "event": "quote.created",
+  "version": 1,
+  "id": "d4e5f6a7-b8c9-4d0e-9f2a-3b4c5d6e7f80",
+  "timestamp": "2026-09-26T21:00:00.000Z",
+  "data": {
+    "quoteExternalId": "q_abc123",
+    "client": { "phone": "573001112233", "name": "Ana Web" },
+    "quote": { "origin": "Bogotá", "destination": "Medellín", "volumeM3": 12.5, "price": 850000 },
+    "status": "PENDING",
+    "createdAt": "2026-09-26T21:00:00.000Z"
+  }
+}
+```
+
+- `quote`, `status` y `createdAt` son opcionales (defaults: `''`/`''`/`null` para origen/destino/volumen, `PENDING` para el estado).
+- El CRM hace upsert del `Client` por teléfono y crea la `Quote` idempotentemente por `quoteExternalId` con `source: 'WEB'`.
+
+#### Notificaciones de cotizaciones web
+
+- **ACCEPTED/REJECTED con `conversationId`:** WhatsApp normal al cliente (flujo del bot).
+- **ACCEPTED/REJECTED sin `conversationId`:** si el cliente tiene una conversación activa con `lastMessageAt` en las últimas 24h → WhatsApp; si no → **notificación interna** (`Notification` con rol `ADMIN` y `MARKETING_DIRECTOR`, tipo `QUOTE_WEB_STATUS`) para que un agente lo contacte manualmente.
 
 ### 2.5 Seguridad del contrato
 

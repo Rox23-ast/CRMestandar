@@ -2,9 +2,10 @@ import { Request, Response } from 'express';
 import { prisma } from '../core/database/prisma';
 import { getRawCredentials } from '../crm/services/credentialService';
 import { recordOutboundMessage } from '../crm/services/conversationService';
+import { createNotification } from '../crm/services/notificationService';
 import { sendWhatsAppMessage } from '../bot/services/whatsappService';
 import { verifySignature } from './signature';
-import { eventEnvelopeSchema, quoteStatusUpdatedSchema } from './events';
+import { eventEnvelopeSchema, quoteStatusUpdatedSchema, quoteCreatedSchema } from './events';
 
 interface RawBodyRequest extends Request {
   rawBody?: Buffer;
@@ -59,28 +60,144 @@ const notifyClient = async (conversationId: string, status: 'PENDING' | 'ACCEPTE
   }
 };
 
+// Notifies a web-born quote status change. The client may have never chatted
+// with the bot: if a recent conversation exists we message them on WhatsApp,
+// otherwise we create internal notifications so an agent follows up manually.
+const notifyWebQuote = async (
+  client: { id: string; name: string | null; phone: string },
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED',
+  price?: number | null,
+  quoteExternalId?: string
+) => {
+  if (status === 'PENDING') return;
+
+  const message = buildNotification(status, price);
+  if (!message) return;
+
+  try {
+    const recentWindow = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recentConversation = await prisma.conversation.findFirst({
+      where: {
+        clientId: client.id,
+        lastMessageAt: { gte: recentWindow },
+        status: { in: ['NEW', 'BOT_ACTIVE', 'HUMAN_ACTIVE', 'WAITING_CUSTOMER'] }
+      },
+      orderBy: { lastMessageAt: 'desc' }
+    });
+
+    if (recentConversation) {
+      const sent = await sendWhatsAppMessage(client.phone, message);
+      await recordOutboundMessage({
+        conversationId: recentConversation.id,
+        body: message,
+        senderType: 'BOT',
+        deliveryStatus: sent ? 'SENT' : 'FAILED'
+      });
+      return;
+    }
+  } catch (error) {
+    console.error('[Cotizador] Error notifying web quote via WhatsApp:', error);
+  }
+
+  const clientLabel = client.name || client.phone;
+  const priceLabel = price !== undefined && price !== null ? ` (${formatPrice(price)})` : '';
+  const action = status === 'ACCEPTED' ? 'aceptó' : 'rechazó';
+  try {
+    for (const role of ['ADMIN', 'MARKETING_DIRECTOR']) {
+      await createNotification({
+        role,
+        type: 'QUOTE_WEB_STATUS',
+        title: `Cotización web ${status.toLowerCase()}`,
+        body: `${clientLabel} ${action} la cotización ${quoteExternalId ?? 'web'}${priceLabel} desde la web del cotizador.`
+      });
+    }
+  } catch (error) {
+    console.error('[Cotizador] Error creating internal notification:', error);
+  }
+};
+
+const upsertClientByPhone = async (client: { phone: string; name: string }) => {
+  return prisma.client.upsert({
+    where: { phone: client.phone },
+    update: client.name ? { name: client.name } : {},
+    create: { phone: client.phone, name: client.name || null }
+  });
+};
+
+const processQuoteCreated = async (
+  data: {
+    quoteExternalId: string;
+    client: { phone: string; name: string };
+    quote?: { origin?: string; destination?: string; volumeM3?: number; price?: number | null };
+    status?: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  }
+) => {
+  const client = await upsertClientByPhone(data.client);
+
+  const existing = await prisma.quote.findFirst({ where: { externalId: data.quoteExternalId } });
+  if (existing) return;
+
+  await prisma.quote.create({
+    data: {
+      clientId: client.id,
+      externalId: data.quoteExternalId,
+      origin: data.quote?.origin ?? '',
+      destination: data.quote?.destination ?? '',
+      volume: data.quote?.volumeM3 ?? null,
+      price: data.quote?.price ?? null,
+      status: data.status ?? 'PENDING',
+      source: 'WEB'
+    }
+  });
+};
+
 const processQuoteStatusUpdate = async (
   data: {
-    conversationId: string;
+    conversationId?: string | null;
     quoteExternalId: string;
     status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
     price?: number | null;
+    client?: { phone: string; name: string };
   }
 ) => {
   const quote = await prisma.quote.findFirst({
     where: {
       OR: [
         { externalId: data.quoteExternalId },
-        { conversationId: data.conversationId }
+        ...(data.conversationId ? [{ conversationId: data.conversationId }] : [])
       ]
     },
     orderBy: { createdAt: 'desc' }
   });
 
   if (!quote) {
-    console.warn(
-      `[Cotizador] No local Quote found for externalId=${data.quoteExternalId} conversationId=${data.conversationId}`
-    );
+    // Late arrival: the CRM has never seen this quote. Resolvable only when
+    // the event carries client data (web-born quotes).
+    if (!data.client) {
+      console.warn(
+        `[Cotizador] No local Quote found for externalId=${data.quoteExternalId} and no client data provided`
+      );
+      return;
+    }
+    const client = await upsertClientByPhone(data.client);
+    await prisma.quote.create({
+      data: {
+        clientId: client.id,
+        conversationId: data.conversationId ?? null,
+        externalId: data.quoteExternalId,
+        origin: '',
+        destination: '',
+        price: data.price ?? null,
+        status: data.status,
+        source: data.conversationId ? 'BOT' : 'WEB'
+      }
+    });
+
+    if (data.conversationId) {
+      await notifyClient(data.conversationId, data.status, data.price);
+    } else {
+      await notifyWebQuote(client, data.status, data.price, data.quoteExternalId);
+    }
     return;
   }
 
@@ -93,7 +210,12 @@ const processQuoteStatusUpdate = async (
     }
   });
 
-  await notifyClient(data.conversationId, data.status, data.price);
+  if (data.conversationId) {
+    await notifyClient(data.conversationId, data.status, data.price);
+  } else if (data.client) {
+    const client = await upsertClientByPhone(data.client);
+    await notifyWebQuote(client, data.status, data.price, data.quoteExternalId);
+  }
 };
 
 /**
@@ -127,6 +249,13 @@ export const receiveCotizadorEvent = async (req: RawBodyRequest, res: Response) 
     const parsed = quoteStatusUpdatedSchema.safeParse(req.body);
     if (!parsed.success) return problem(res, 400, 'Invalid event payload');
     return handleQuoteStatusUpdated(parsed.data, res);
+  }
+
+  const isQuoteCreated = envelope.data.event === 'quote.created';
+  if (isQuoteCreated) {
+    const parsed = quoteCreatedSchema.safeParse(req.body);
+    if (!parsed.success) return problem(res, 400, 'Invalid event payload');
+    return handleQuoteCreated(parsed.data, res);
   }
 
   // Unknown event type: acknowledge (200) so the sender does not retry forever.
@@ -177,6 +306,23 @@ const handleQuoteStatusUpdated = async (
   } catch (error) {
     // Release the idempotency marker so the sender's retry can process it again.
     console.error('[Cotizador] Error processing quote.status.updated:', error);
+    await releaseEventMarker(payload.id);
+    return problem(res, 500, 'Event processing failed');
+  }
+  return res.json({ received: true });
+};
+
+const handleQuoteCreated = async (
+  payload: ReturnType<typeof quoteCreatedSchema.parse>,
+  res: Response
+) => {
+  const duplicate = await markEventProcessed(payload.id, payload.event, payload, 'PROCESSED');
+  if (duplicate) return res.json({ received: true, duplicate: true });
+
+  try {
+    await processQuoteCreated(payload.data);
+  } catch (error) {
+    console.error('[Cotizador] Error processing quote.created:', error);
     await releaseEventMarker(payload.id);
     return problem(res, 500, 'Event processing failed');
   }

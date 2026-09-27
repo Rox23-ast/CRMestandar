@@ -224,6 +224,7 @@ model Quote {
   price          Float?
   externalId     String?       @unique // Quote ID in the external cotizador system
   status         String        @default("PENDING") // Status: PENDING, ACCEPTED, REJECTED
+  source         String        @default("BOT") // Origin: BOT (via WhatsApp) | WEB (cotizador web form)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
