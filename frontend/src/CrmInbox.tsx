@@ -106,6 +106,9 @@ const InboundMedia = ({ token, mediaId, type, body }: { token: string; mediaId: 
 
 export default function CrmInbox({ token, userRole }: { token: string; userRole: string }) {
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const [totalConversations, setTotalConversations] = useState(0)
+  const [conversationPage, setConversationPage] = useState(1)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [selected, setSelected] = useState<ConversationDetail | null>(null)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
@@ -186,14 +189,30 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     }
   }
 
-  const loadConversations = async () => {
+  const loadConversations = async (pageToLoad = 1, append = false) => {
     const params = new URLSearchParams()
     if (filterStatus) params.set('businessStatus', filterStatus)
     if (filterSource) params.set('source', filterSource)
     if (filterSearch) params.set('search', filterSearch)
     if (filterIncludeFinal) params.set('includeFinal', 'true')
+    params.set('page', String(pageToLoad))
+    params.set('pageSize', '50')
     const response = await axios.get(`${API_URL}/api/crm/conversations?${params.toString()}`, { headers: authHeaders(token) })
-    setConversations(response.data.data)
+    setTotalConversations(response.data.pagination?.total ?? response.data.data.length)
+    setConversationPage(pageToLoad)
+    setConversations((current) => (append ? [...current, ...response.data.data] : response.data.data))
+  }
+
+  const loadMoreConversations = async () => {
+    if (loadingMore) return
+    setLoadingMore(true)
+    try {
+      await loadConversations(conversationPage + 1, true)
+    } catch {
+      setError('No fue posible cargar más conversaciones.')
+    } finally {
+      setLoadingMore(false)
+    }
   }
 
   const loadConversation = async (id: string) => {
@@ -460,7 +479,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
           <div className="p-4 border-b border-neutral-gray flex-shrink-0 flex justify-between items-center">
             <div>
               <p className="text-xs uppercase tracking-wider text-neutral-darkgray">Conversaciones</p>
-              <p className="text-sm text-primary mt-1">{conversations.length} activas</p>
+              <p className="text-sm text-primary mt-1">{totalConversations} activas</p>
             </div>
             <div className="flex items-center gap-2">
               {unread > 0 && <span className="bg-secondary text-white text-xs px-2 py-1 rounded-full">{unread} nuevas</span>}
@@ -604,6 +623,15 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
               </button>
             )
           })}
+          {conversations.length < totalConversations && (
+            <button
+              onClick={() => void loadMoreConversations()}
+              disabled={loadingMore}
+              className="w-full p-3 text-sm text-secondary hover:bg-neutral-light/50 transition-colors"
+            >
+              {loadingMore ? 'Cargando…' : `Cargar más (${conversations.length} de ${totalConversations})`}
+            </button>
+          )}
           </div>
         </section>
         <section className="flex flex-col h-full overflow-hidden">
