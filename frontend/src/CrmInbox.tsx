@@ -19,6 +19,7 @@ type Conversation = {
   status: string
   priority: string
   businessStatus?: string | null
+  source?: string | null
   assignedUserId?: string | null
   assignedRole?: string | null
   client: { phone: string; name?: string | null }
@@ -65,6 +66,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [statusConfigs, setStatusConfigs] = useState<BusinessStatusConfig[]>([])
   const [assignableUsers, setAssignableUsers] = useState<{ id: string; name: string; role: string }[]>([])
   const [filterStatus, setFilterStatus] = useState<string>('')
+  const [filterSource, setFilterSource] = useState<string>('')
   const [filterIncludeFinal, setFilterIncludeFinal] = useState(false)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [assignMenuOpen, setAssignMenuOpen] = useState(false)
@@ -125,6 +127,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const loadConversations = async () => {
     const params = new URLSearchParams()
     if (filterStatus) params.set('businessStatus', filterStatus)
+    if (filterSource) params.set('source', filterSource)
     if (filterIncludeFinal) params.set('includeFinal', 'true')
     const response = await axios.get(`${API_URL}/api/crm/conversations?${params.toString()}`, { headers: authHeaders(token) })
     setConversations(response.data.data)
@@ -196,7 +199,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     const interval = setInterval(refresh, 30000)
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, filterStatus, filterIncludeFinal])
+  }, [token, filterStatus, filterSource, filterIncludeFinal])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -338,6 +341,27 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                 </button>
               )}
             </div>
+            <div className="flex items-center space-x-2">
+              <label className="text-xs text-neutral-darkgray w-20">Origen:</label>
+              <select
+                value={filterSource}
+                onChange={(e) => setFilterSource(e.target.value)}
+                className="flex-1 border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+              >
+                <option value="">Todos</option>
+                <option value="ADS">Pauta (Meta Ads)</option>
+                <option value="ORGANIC">Orgánico</option>
+              </select>
+              {filterSource && (
+                <button
+                  onClick={() => setFilterSource('')}
+                  className="p-1.5 text-neutral-darkgray hover:text-red-500 transition-colors"
+                  title="Limpiar filtro"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto">
           {conversations.map((conversation) => {
@@ -346,7 +370,12 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
               <button key={conversation.id} onClick={() => void loadConversation(conversation.id)} className={`w-full text-left p-4 border-b border-neutral-gray hover:bg-neutral-light ${selected?.id === conversation.id ? 'bg-secondary/20 border-l-4 border-l-accent-gold' : ''}`}>
                 <div className="flex justify-between gap-2">
                   <strong className="text-primary truncate">{conversation.client.name || conversation.client.phone}</strong>
-                  <span className="text-[11px] text-neutral-darkgray">{priorityLabels[conversation.priority]}</span>
+                  <span className="text-[11px] text-neutral-darkgray flex items-center gap-1 flex-shrink-0">
+                    {conversation.source === 'ADS' && (
+                      <span className="bg-blue-100 text-blue-800 text-[10px] font-medium px-1.5 py-0.5 rounded-full">Pauta</span>
+                    )}
+                    {priorityLabels[conversation.priority]}
+                  </span>
                 </div>
                 <div className="flex justify-between mt-2 text-xs text-neutral-darkgray">
                   <span>{statusLabels[conversation.status] || conversation.status}</span>

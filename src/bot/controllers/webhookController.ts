@@ -25,7 +25,18 @@ const webhookMessageSchema = z.object({
   type: z.string().min(1),
   text: z.object({ body: z.string() }).optional(),
   image: z.object({ id: z.string().min(1) }).optional(),
-  document: z.object({ id: z.string().min(1), caption: z.string().optional() }).optional()
+  document: z.object({ id: z.string().min(1), caption: z.string().optional() }).optional(),
+  // Present when the chat was initiated from a Meta ad (Click-to-WhatsApp):
+  // context.from is the ad id and context.referral carries the ctwa payload.
+  context: z.object({
+    from: z.string().optional(),
+    id: z.string().optional(),
+    referral: z.object({
+      source_type: z.string().optional(),
+      source_id: z.string().optional(),
+      ctwa_clid: z.string().optional()
+    }).passthrough().optional()
+  }).passthrough().optional()
 }).passthrough();
 
 const webhookBodySchema = z.object({
@@ -95,9 +106,15 @@ export const receiveMessage = async (req: RawBodyRequest, res: Response) => {
                 ? message.document?.caption
                 : undefined;
             const mediaId = message.image?.id ?? message.document?.id;
+            const adsContext = message.context?.from || message.context?.referral
+              ? {
+                  from: message.context.from,
+                  referral: message.context.referral
+                }
+              : undefined;
 
-            console.log(`WhatsApp message received from ${from}: ${text ?? type}`);
-            await processIncomingMessage(from, text, message.id, type, mediaId);
+            console.log(`WhatsApp message received from ${from}: ${text ?? type}${adsContext ? ' [ADS]' : ''}`);
+            await processIncomingMessage(from, text, message.id, type, mediaId, adsContext);
             }
           }
         }

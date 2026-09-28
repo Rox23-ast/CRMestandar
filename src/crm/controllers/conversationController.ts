@@ -19,6 +19,7 @@ const listQuerySchema = z.object({
   priority: z.string().optional(),
   assignedUserId: z.string().uuid().optional(),
   businessStatus: z.string().optional(),
+  source: z.enum(['ADS', 'ORGANIC']).optional(),
   includeFinal: z.coerce.boolean().optional()
 });
 
@@ -97,7 +98,7 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
     return problem(res, 400, 'Invalid conversation filters');
   }
 
-  const { page, pageSize, status, priority, assignedUserId, businessStatus, includeFinal } = parsed.data;
+  const { page, pageSize, status, priority, assignedUserId, businessStatus, source, includeFinal } = parsed.data;
   const userFilter = canSeeAllConversations(req.user.role)
     ? {}
     : { assignedUserId: req.user.id };
@@ -105,7 +106,9 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
     ...userFilter,
     ...(status ? { status } : {}),
     ...(priority ? { priority } : {}),
-    ...(assignedUserId ? { assignedUserId } : {})
+    ...(assignedUserId ? { assignedUserId } : {}),
+    ...(source === 'ADS' ? { source: 'ADS' } : {}),
+    ...(source === 'ORGANIC' ? { source: null } : {})
   };
 
   // Excluir conversaciones cuyo estado de gestión sea final, a menos que se pida verlas

@@ -232,6 +232,7 @@ export const recordInboundMessage = async (input: {
   type?: string;
   mediaId?: string;
   externalId?: string;
+  metadata?: Record<string, unknown>;
 }) => {
   if (input.externalId) {
     const existing = await prisma.message.findUnique({ where: { externalId: input.externalId } });
@@ -248,6 +249,7 @@ export const recordInboundMessage = async (input: {
       type: input.type ?? 'TEXT',
       body: input.body,
       mediaId: input.mediaId,
+      metadata: input.metadata ? JSON.stringify(input.metadata) : undefined,
       deliveryStatus: 'RECEIVED'
     }
   });

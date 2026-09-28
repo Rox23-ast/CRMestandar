@@ -38,7 +38,8 @@ export const processIncomingMessage = async (
   text: string | undefined,
   externalId?: string,
   type = 'TEXT',
-  mediaId?: string
+  mediaId?: string,
+  adsContext?: { from?: string; referral?: Record<string, unknown> }
 ) => {
   try {
     const inbound = await recordInboundMessage({
@@ -46,10 +47,18 @@ export const processIncomingMessage = async (
       body: text,
       type,
       mediaId,
-      externalId
+      externalId,
+      metadata: adsContext ? { ads: adsContext } : undefined
     });
 
     if (inbound.duplicate || inbound.status === 'HUMAN_ACTIVE') return;
+
+    if (inbound.isNew && adsContext) {
+      await prisma.conversation.update({
+        where: { id: inbound.conversationId },
+        data: { source: 'ADS' }
+      });
+    }
 
     const conversation = await prisma.conversation.findUnique({
       where: { id: inbound.conversationId },

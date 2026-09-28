@@ -329,4 +329,44 @@ describe('conversationFlow - cotizador integration', () => {
       expect(mockPrisma.conversation.update).not.toHaveBeenCalled();
     });
   });
+
+  describe('meta ads source', () => {
+    it('marks a new conversation as ADS and stores the context metadata', async () => {
+      setup({
+        inbound: { conversationId: 'conv-1', status: 'BOT_ACTIVE', duplicate: false, isNew: true }
+      });
+
+      await processIncomingMessage(
+        '573001112233',
+        'hola desde el anuncio',
+        'wamid.12',
+        'TEXT',
+        undefined,
+        { from: '1072732x5451', referral: { ctwa_clid: 'xyz' } }
+      );
+
+      expect(mockRecordInbound).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: { ads: { from: '1072732x5451', referral: { ctwa_clid: 'xyz' } } }
+        })
+      );
+      expect(mockPrisma.conversation.update).toHaveBeenCalledWith({
+        where: { id: 'conv-1' },
+        data: { source: 'ADS' }
+      });
+    });
+
+    it('does not mark organic messages as ADS', async () => {
+      setup({
+        inbound: { conversationId: 'conv-1', status: 'BOT_ACTIVE', duplicate: false, isNew: true }
+      });
+
+      await processIncomingMessage('573001112233', 'hola', 'wamid.13');
+
+      expect(mockRecordInbound).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: undefined })
+      );
+      expect(mockPrisma.conversation.update).not.toHaveBeenCalled();
+    });
+  });
 });
