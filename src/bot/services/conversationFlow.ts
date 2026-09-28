@@ -63,8 +63,32 @@ export const processIncomingMessage = async (
       awayMessage: 'Estamos fuera de horario.',
       aiPersonalityPrompt: 'Eres un asistente.',
       limitations: '',
-      customRules: '[]'
+      customRules: '[]',
+      botEnabled: true
     };
+
+    const client = conversation.client;
+
+    // Bot desactivado: los mensajes entrantes los gestionan agentes humanos.
+    // No se saluda, no se procesa con IA ni reglas; solo se notifica al equipo.
+    if (botConfig.botEnabled === false) {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { status: 'NEW' }
+      });
+      if (text && text.trim()) {
+        for (const role of ['ADMIN', 'MARKETING_DIRECTOR']) {
+          await createNotification({
+            role,
+            conversationId: conversation.id,
+            type: 'BOT_DISABLED_MESSAGE',
+            title: 'Mensaje entrante (bot desactivado)',
+            body: `${client.name || client.phone}: ${text.slice(0, 200)}`
+          });
+        }
+      }
+      return;
+    }
 
     if (inbound.isNew) {
       const greeting = type === 'TEXT'
@@ -83,7 +107,6 @@ export const processIncomingMessage = async (
       return;
     }
 
-    const client = conversation.client;
     switch (client.botStep) {
       case 'QUOTE_ORIGIN':
         await sendAndRecordBotMessage(

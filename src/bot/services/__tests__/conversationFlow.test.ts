@@ -8,7 +8,7 @@ import { emitQuoteRequested, emitQuoteCaptured } from '../../../integrations/web
 
 jest.mock('../../../core/database/prisma', () => ({
   prisma: {
-    conversation: { findUnique: jest.fn() },
+    conversation: { findUnique: jest.fn(), update: jest.fn() },
     botConfig: { findFirst: jest.fn() },
     client: { update: jest.fn() },
     quote: { create: jest.fn() }
@@ -38,7 +38,7 @@ jest.mock('../../../integrations/webhookClient', () => ({
 }));
 
 const mockPrisma = prisma as unknown as {
-  conversation: { findUnique: jest.Mock };
+  conversation: { findUnique: jest.Mock; update: jest.Mock };
   botConfig: { findFirst: jest.Mock };
   client: { update: jest.Mock };
   quote: { create: jest.Mock };
@@ -87,21 +87,26 @@ const setup = ({
   inbound = { conversationId: 'conv-1', status: 'BOT_ACTIVE', duplicate: false, isNew: false },
   conversation = baseConversation,
   rules = defaultRules,
-  aiResponse = { message: 'resp', intent: 'UNKNOWN' }
+  aiResponse = { message: 'resp', intent: 'UNKNOWN' },
+  botConfig = {}
 }: {
   inbound?: Record<string, unknown>;
   conversation?: Record<string, unknown>;
   rules?: unknown;
   aiResponse?: { message: string; intent: string };
+  botConfig?: Record<string, unknown>;
 } = {}) => {
   mockRecordInbound.mockResolvedValue(inbound as never);
   mockPrisma.conversation.findUnique.mockResolvedValue(conversation as never);
+  mockPrisma.conversation.update.mockResolvedValue({} as never);
   mockPrisma.botConfig.findFirst.mockResolvedValue({
     greetingMessage: 'Hola',
     awayMessage: 'Fuera',
     aiPersonalityPrompt: 'Bot',
     limitations: '',
-    customRules: JSON.stringify(rules)
+    customRules: JSON.stringify(rules),
+    botEnabled: true,
+    ...botConfig
   } as never);
   mockPrisma.client.update.mockResolvedValue({} as never);
   mockPrisma.quote.create.mockResolvedValue({
@@ -266,6 +271,62 @@ describe('conversationFlow - cotizador integration', () => {
       );
       expect(mockPrisma.quote.create).not.toHaveBeenCalled();
       expect(mockEmitCaptured).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('bot disabled', () => {
+    it('does not greet a new conversation and routes it to humans', async () => {
+      setup({
+        inbound: { conversationId: 'conv-1', status: 'BOT_ACTIVE', duplicate: false, isNew: true },
+        botConfig: { botEnabled: false }
+      });
+
+      await processIncomingMessage('573001112233', 'hola, necesito ayuda', 'wamid.9');
+
+      expect(mockPrisma.conversation.update).toHaveBeenCalledWith({
+        where: { id: 'conv-1' },
+        data: { status: 'NEW' }
+      });
+      expect(mockSendWhatsApp).not.toHaveBeenCalled();
+      expect(mockRecordOutbound).not.toHaveBeenCalled();
+      expect(mockCreateNotification).toHaveBeenCalledTimes(2);
+      expect(mockCreateNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'ADMIN', type: 'BOT_DISABLED_MESSAGE' })
+      );
+      expect(mockCreateNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'MARKETING_DIRECTOR', type: 'BOT_DISABLED_MESSAGE' })
+      );
+    });
+
+    it('skips AI, rules and flow steps for existing conversations', async () => {
+      setup({
+        conversation: {
+          ...baseConversation,
+          client: { ...baseClient, botStep: 'QUOTE_ORIGIN' }
+        },
+        botConfig: { botEnabled: false }
+      });
+
+      await processIncomingMessage('573001112233', 'de Bogotá', 'wamid.10');
+
+      expect(mockProcessAI).not.toHaveBeenCalled();
+      expect(mockRecordOutbound).not.toHaveBeenCalled();
+      expect(mockPrisma.client.update).not.toHaveBeenCalled();
+      expect(mockPrisma.conversation.update).toHaveBeenCalledWith({
+        where: { id: 'conv-1' },
+        data: { status: 'NEW' }
+      });
+    });
+
+    it('still processes normally when the bot is enabled', async () => {
+      setup({
+        inbound: { conversationId: 'conv-1', status: 'BOT_ACTIVE', duplicate: false, isNew: true }
+      });
+
+      await processIncomingMessage('573001112233', 'hola', 'wamid.11');
+
+      expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', 'Hola');
+      expect(mockPrisma.conversation.update).not.toHaveBeenCalled();
     });
   });
 });

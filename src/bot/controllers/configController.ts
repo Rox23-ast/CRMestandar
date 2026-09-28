@@ -14,7 +14,8 @@ const botConfigSchema = z.object({
   awayMessage: z.string().trim().min(1).max(500),
   aiPersonalityPrompt: z.string().trim().min(1).max(5000),
   limitations: z.string().trim().max(5000),
-  customRules: z.array(customRuleSchema)
+  customRules: z.array(customRuleSchema),
+  botEnabled: z.boolean().optional()
 });
 
 const problem = (res: Response, status: number, title: string) =>
@@ -33,6 +34,7 @@ export const getBotConfig = async (req: Request, res: Response) => {
         aiPersonalityPrompt: 'Eres un asistente formal y empático de una empresa de mudanzas llamada Mudanzas Chico.',
         limitations: 'No dar precios finales sin confirmación de volumen por un agente.',
         customRules: "[]",
+        botEnabled: true,
         updatedAt: new Date()
       };
     }
@@ -55,7 +57,7 @@ export const updateBotConfig = async (req: Request, res: Response) => {
   }
 
   try {
-    const { greetingMessage, awayMessage, aiPersonalityPrompt, limitations, customRules } = parsed.data;
+    const { greetingMessage, awayMessage, aiPersonalityPrompt, limitations, customRules, botEnabled } = parsed.data;
     
     const existingConfig = await prisma.botConfig.findFirst();
     
@@ -68,7 +70,8 @@ export const updateBotConfig = async (req: Request, res: Response) => {
           awayMessage,
           aiPersonalityPrompt,
           limitations,
-          customRules: customRules ? JSON.stringify(customRules) : undefined
+          customRules: customRules ? JSON.stringify(customRules) : undefined,
+          botEnabled: botEnabled === undefined ? undefined : botEnabled
         }
       });
     } else {
@@ -78,7 +81,8 @@ export const updateBotConfig = async (req: Request, res: Response) => {
           awayMessage,
           aiPersonalityPrompt,
           limitations,
-          customRules: customRules ? JSON.stringify(customRules) : "[]"
+          customRules: customRules ? JSON.stringify(customRules) : "[]",
+          botEnabled: botEnabled ?? true
         }
       });
     }

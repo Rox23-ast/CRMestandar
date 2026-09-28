@@ -199,12 +199,13 @@ model ConversationStatusConfig {
 
 model BotConfig {
   id                  String   @id @default(uuid())
-  greetingMessage     String   @default("¡Hola! Soy el asistente virtual de Mudanzas Chico. ¿En qué te puedo ayudar hoy?")
-  awayMessage         String   @default("En este momento estamos fuera de horario de atención. Déjanos tu mensaje y te contactaremos pronto.")
-  aiPersonalityPrompt String   @default("Eres un asistente formal y empático de una empresa de mudanzas llamada Mudanzas Chico.")
-  limitations         String   @default("No dar precios finales sin confirmación de volumen por un agente.")
+  greetingMessage     String   @default("��Hola! Soy el asistente virtual de Mudanzas Chico. ��En quǸ te puedo ayudar hoy?")
+  awayMessage         String   @default("En este momento estamos fuera de horario de atenci��n. DǸjanos tu mensaje y te contactaremos pronto.")
+  aiPersonalityPrompt String   @default("Eres un asistente formal y empǭtico de una empresa de mudanzas llamada Mudanzas Chico.")
+  limitations         String   @default("No dar precios finales sin confirmaci��n de volumen por un agente.")
+  botEnabled          Boolean  @default(true) // false = los mensajes entrantes se gestionan por agentes humanos
   // SQLite does not natively support JSON lists, so we use String to store serialized JSON
-  customRules         String   @default("[]") // Almacenará un array de { id, title, keywords, response }
+  customRules         String   @default("[]") // Almacenarǭ un array de { id, title, keywords, response }
   updatedAt           DateTime @updatedAt
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { MessageCircle, Send, UserCheck, UserPlus, ChevronDown, X } from 'lucide-react'
+import { MessageCircle, Send, UserCheck, UserPlus, Bot, ChevronDown, X } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -68,6 +68,9 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [filterIncludeFinal, setFilterIncludeFinal] = useState(false)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [assignMenuOpen, setAssignMenuOpen] = useState(false)
+  const [botEnabled, setBotEnabled] = useState(true)
+  const [togglingBot, setTogglingBot] = useState(false)
+  const botConfigRef = useRef<Record<string, unknown> | null>(null)
   const statusMenuRef = useRef<HTMLDivElement | null>(null)
   const assignMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedIdRef = useRef<string | null>(null)
@@ -80,6 +83,33 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       setAssignableUsers(response.data)
     } catch {
       // Assignment dropdown just stays empty if the list cannot be loaded.
+    }
+  }
+
+  const loadBotEnabled = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/bot/config`, { headers: authHeaders(token) })
+      const data = response.data
+      if (!Array.isArray(data.customRules)) data.customRules = []
+      botConfigRef.current = data
+      setBotEnabled(data.botEnabled !== false)
+    } catch {
+      // Toggle stays in its default state if the config cannot be loaded.
+    }
+  }
+
+  const handleToggleBot = async () => {
+    if (togglingBot || !botConfigRef.current) return
+    setTogglingBot(true)
+    try {
+      const payload = { ...botConfigRef.current, botEnabled: !botEnabled }
+      const response = await axios.put(`${API_URL}/api/bot/config`, payload, { headers: authHeaders(token) })
+      botConfigRef.current = response.data
+      setBotEnabled(response.data.botEnabled !== false)
+    } catch {
+      setError('No fue posible cambiar el estado del bot.')
+    } finally {
+      setTogglingBot(false)
     }
   }
 
@@ -108,7 +138,10 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   useEffect(() => {
     if (!token) return
     loadStatusConfigs()
-    if (canAssign) void loadAssignableUsers()
+    if (canAssign) {
+      void loadAssignableUsers()
+      void loadBotEnabled()
+    }
     void loadConversations().catch(() => setError('No fue posible cargar las conversaciones.'))
 
     const controller = new AbortController()
@@ -252,7 +285,21 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
               <p className="text-xs uppercase tracking-wider text-neutral-darkgray">Conversaciones</p>
               <p className="text-sm text-primary mt-1">{conversations.length} activas</p>
             </div>
-            {unread > 0 && <span className="bg-secondary text-white text-xs px-2 py-1 rounded-full">{unread} nuevas</span>}
+            <div className="flex items-center gap-2">
+              {unread > 0 && <span className="bg-secondary text-white text-xs px-2 py-1 rounded-full">{unread} nuevas</span>}
+              {canAssign && (
+                <button
+                  type="button"
+                  onClick={() => void handleToggleBot()}
+                  disabled={togglingBot}
+                  title={botEnabled ? 'Desactivar el bot para que los mensajes los gestionen agentes humanos' : 'Activar el bot para que responda automáticamente'}
+                  className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 transition-colors ${botEnabled ? 'bg-green-100 text-green-800 hover:bg-green-200' : 'bg-red-100 text-red-800 hover:bg-red-200'}`}
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  <span>{togglingBot ? 'Cambiando…' : botEnabled ? 'Bot activo' : 'Bot desactivado'}</span>
+                </button>
+              )}
+            </div>
           </div>
           {/* Filtros */}
           <div className="p-3 border-b border-neutral-gray bg-neutral-light/30 space-y-2">
