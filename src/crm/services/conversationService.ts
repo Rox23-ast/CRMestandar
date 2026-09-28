@@ -271,27 +271,25 @@ export const recordInboundMessage = async (input: {
     data: { lastMessageAt: message.createdAt, status: nextStatus }
   });
 
-  if (conversation.assignedUserId || conversation.assignedRole) {
+  if (conversation.assignedUserId) {
     await createNotification({
-      userId: conversation.assignedUserId ?? undefined,
-      role: conversation.assignedRole ?? undefined,
+      userId: conversation.assignedUserId,
       conversationId: conversation.id,
       type: 'MESSAGE_RECEIVED',
       title: 'Nuevo mensaje de cliente',
       body: input.body ?? 'El cliente envió un archivo.'
     });
-  } else {
-    // Sin asignar: notifica a ADMIN y MARKETING_DIRECTOR para que alguien
-    // tome la conversación aunque no esté en la cola de un agente.
-    for (const role of ['ADMIN', 'MARKETING_DIRECTOR']) {
-      await createNotification({
-        role,
-        conversationId: conversation.id,
-        type: 'MESSAGE_RECEIVED',
-        title: 'Nuevo mensaje de cliente',
-        body: input.body ?? 'El cliente envió un archivo.'
-      });
-    }
+  }
+  // ADMIN y MARKETING_DIRECTOR siempre ven los mensajes entrantes, esté o no
+  // asignada la conversación, para detectar chats que requieren atención.
+  for (const role of ['ADMIN', 'MARKETING_DIRECTOR']) {
+    await createNotification({
+      role,
+      conversationId: conversation.id,
+      type: 'MESSAGE_RECEIVED',
+      title: 'Nuevo mensaje de cliente',
+      body: input.body ?? 'El cliente envió un archivo.'
+    });
   }
 
   return { conversationId: conversation.id, status: nextStatus, duplicate: false, isNew };
