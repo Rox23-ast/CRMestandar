@@ -280,6 +280,18 @@ export const recordInboundMessage = async (input: {
       title: 'Nuevo mensaje de cliente',
       body: input.body ?? 'El cliente envió un archivo.'
     });
+  } else {
+    // Sin asignar: notifica a ADMIN y MARKETING_DIRECTOR para que alguien
+    // tome la conversación aunque no esté en la cola de un agente.
+    for (const role of ['ADMIN', 'MARKETING_DIRECTOR']) {
+      await createNotification({
+        role,
+        conversationId: conversation.id,
+        type: 'MESSAGE_RECEIVED',
+        title: 'Nuevo mensaje de cliente',
+        body: input.body ?? 'El cliente envió un archivo.'
+      });
+    }
   }
 
   return { conversationId: conversation.id, status: nextStatus, duplicate: false, isNew };

@@ -250,6 +250,10 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
             if (chunk.includes('notification.created')) {
               setUnread((current) => current + 1)
               void loadConversations()
+              const match = chunk.match(/"conversationId":"([^"]+)"/)
+              if (match?.[1] && match[1] === selectedIdRef.current) {
+                void loadConversation(match[1]).catch(() => undefined)
+              }
             }
           }
         } catch {
@@ -472,7 +476,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden relative bg-neutral-light">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative bg-neutral-light">
       {error && <div className="bg-red-50 text-red-700 px-6 py-3 text-sm flex-shrink-0">{error}</div>}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] w-full mx-auto overflow-hidden">
         <section className="bg-white border-r border-neutral-gray flex flex-col h-full overflow-hidden">

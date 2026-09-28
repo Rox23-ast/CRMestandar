@@ -239,7 +239,7 @@ function App() {
   }
 
   return (
-    <div className="flex min-h-screen bg-neutral-light font-raleway">
+    <div className="flex h-screen overflow-hidden bg-neutral-light font-raleway">
       
       {/* Sidebar */}
       <aside className="w-64 bg-primary text-white flex flex-col">
@@ -440,7 +440,7 @@ function App() {
     </header>
 
     {/* Content Area */}
-    <div className="flex-1 overflow-hidden flex flex-col">
+    <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
       {activePanel === 'crm' ? (
         <CrmInbox token={token} userRole={crmUserRole} />
       ) : (
