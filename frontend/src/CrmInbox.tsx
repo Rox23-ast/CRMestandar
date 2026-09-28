@@ -141,6 +141,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const recordTimerRef = useRef<number | null>(null)
+  const composerFormRef = useRef<HTMLFormElement | null>(null)
   const statusMenuRef = useRef<HTMLDivElement | null>(null)
   const assignMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedIdRef = useRef<string | null>(null)
@@ -921,7 +922,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                     Grabando nota de voz… {recordSeconds}s
                   </div>
                 )}
-                <form onSubmit={handleSend} className="p-4 flex gap-3 items-center">
+                <form ref={composerFormRef} onSubmit={handleSend} className="p-4 flex gap-3 items-end">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -956,11 +957,22 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                     </button>
                   )}
                   <div className="flex-1 relative">
-                    <input
+                    <textarea
                       value={draft}
-                      onChange={(event) => setDraft(event.target.value)}
-                      placeholder={attachment ? 'Comentario para el archivo (opcional)…' : 'Escribe una respuesta para WhatsApp...'}
-                      className="w-full border border-neutral-gray rounded-md px-3 py-2"
+                      onChange={(event) => {
+                        setDraft(event.target.value)
+                        event.target.style.height = 'auto'
+                        event.target.style.height = `${Math.min(event.target.scrollHeight, 160)}px`
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                          event.preventDefault()
+                          composerFormRef.current?.requestSubmit()
+                        }
+                      }}
+                      rows={1}
+                      placeholder={attachment ? 'Comentario para el archivo (opcional)…' : 'Escribe una respuesta… (Enter salto de línea, Ctrl+Enter enviar)'}
+                      className="w-full border border-neutral-gray rounded-md px-3 py-2 resize-none overflow-y-auto text-sm leading-relaxed"
                     />
                     {quickMenuVisible && (
                       <div className="absolute bottom-full left-0 mb-1 w-full max-h-48 overflow-y-auto bg-white border border-neutral-gray rounded-md shadow-lg z-20">
