@@ -103,12 +103,15 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const handleToggleBot = async () => {
     if (togglingBot || !botConfigRef.current) return
     setTogglingBot(true)
+    const previous = botEnabled
+    setBotEnabled(!previous)
     try {
-      const payload = { ...botConfigRef.current, botEnabled: !botEnabled }
+      const payload = { ...botConfigRef.current, botEnabled: !previous }
       const response = await axios.put(`${API_URL}/api/bot/config`, payload, { headers: authHeaders(token) })
       botConfigRef.current = response.data
       setBotEnabled(response.data.botEnabled !== false)
     } catch {
+      setBotEnabled(previous)
       setError('No fue posible cambiar el estado del bot.')
     } finally {
       setTogglingBot(false)
@@ -188,6 +191,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   }, [selected])
 
   // Auto-refresh: polling ligero para no depender del F5 ni del SSE.
+  // También refresca de inmediato al cambiar filtros, sin esperar el próximo tick.
   useEffect(() => {
     if (!token) return
     const refresh = () => {
@@ -195,11 +199,13 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       if (selectedIdRef.current) {
         void loadConversation(selectedIdRef.current).catch(() => undefined)
       }
+      if (canAssign) void loadBotEnabled()
     }
+    refresh()
     const interval = setInterval(refresh, 30000)
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, filterStatus, filterSource, filterIncludeFinal])
+  }, [token, filterStatus, filterSource, filterIncludeFinal, canAssign])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
