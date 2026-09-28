@@ -72,7 +72,7 @@ export async function listLeads(query: LeadQuery, user: AuthenticatedRequest['us
 
   if (query.search) {
     clientWhere.OR = [
-      { name: { contains: query.search, mode: 'insensitive' } },
+      { name: { contains: query.search } },
       { phone: { contains: query.search } },
     ];
   }

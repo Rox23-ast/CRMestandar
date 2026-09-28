@@ -133,7 +133,7 @@ describe('leadService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             OR: [
-              { name: { contains: 'Juan', mode: 'insensitive' } },
+              { name: { contains: 'Juan' } },
               { phone: { contains: 'Juan' } },
             ],
           }),

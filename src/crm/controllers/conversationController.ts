@@ -129,7 +129,7 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
           client: {
             OR: [
               { phone: { contains: search } },
-              { name: { contains: search, mode: 'insensitive' } }
+              { name: { contains: search } }
             ]
           }
         }
