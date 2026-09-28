@@ -65,6 +65,9 @@ export default function CrmInbox({ token }: { token: string }) {
   const [statusConfigs, setStatusConfigs] = useState<BusinessStatusConfig[]>([])
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterIncludeFinal, setFilterIncludeFinal] = useState(false)
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false)
+  const statusMenuRef = useRef<HTMLDivElement | null>(null)
+  const selectedIdRef = useRef<string | null>(null)
   const eventAbort = useRef<AbortController | null>(null)
 
   const loadStatusConfigs = async () => {
@@ -97,30 +100,63 @@ export default function CrmInbox({ token }: { token: string }) {
     const controller = new AbortController()
     eventAbort.current = controller
     const listen = async () => {
-      try {
-        const response = await fetch(`${API_URL}/api/crm/events`, {
-          headers: authHeaders(token),
-          signal: controller.signal
-        })
-        if (!response.body) return
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        while (!controller.signal.aborted) {
-          const { value, done } = await reader.read()
-          if (done) break
-          const chunk = decoder.decode(value)
-          if (chunk.includes('notification.created')) {
-            setUnread((current) => current + 1)
-            void loadConversations()
+      while (!controller.signal.aborted) {
+        try {
+          const response = await fetch(`${API_URL}/api/crm/events`, {
+            headers: authHeaders(token),
+            signal: controller.signal
+          })
+          if (!response.body) return
+          const reader = response.body.getReader()
+          const decoder = new TextDecoder()
+          while (!controller.signal.aborted) {
+            const { value, done } = await reader.read()
+            if (done) break
+            const chunk = decoder.decode(value)
+            if (chunk.includes('notification.created')) {
+              setUnread((current) => current + 1)
+              void loadConversations()
+            }
           }
+        } catch {
+          // The inbox remains usable if the SSE connection is interrupted.
         }
-      } catch {
-        // The inbox remains usable if the SSE connection is interrupted.
+        if (!controller.signal.aborted) {
+          await new Promise((resolve) => setTimeout(resolve, 5000))
+        }
       }
     }
     void listen()
     return () => controller.abort()
   }, [token])
+
+  useEffect(() => {
+    selectedIdRef.current = selected?.id ?? null
+  }, [selected])
+
+  // Auto-refresh: polling ligero para no depender del F5 ni del SSE.
+  useEffect(() => {
+    if (!token) return
+    const refresh = () => {
+      void loadConversations().catch(() => undefined)
+      if (selectedIdRef.current) {
+        void loadConversation(selectedIdRef.current).catch(() => undefined)
+      }
+    }
+    const interval = setInterval(refresh, 30000)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, filterStatus, filterIncludeFinal])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(event.target as Node)) {
+        setStatusMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const handleTake = async () => {
     if (!selected) return
@@ -142,6 +178,7 @@ export default function CrmInbox({ token }: { token: string }) {
         { businessStatus: newStatus },
         { headers: authHeaders(token) }
       )
+      setStatusMenuOpen(false)
       await Promise.all([loadConversation(selected.id), loadConversations()])
     } catch {
       setError('No fue posible actualizar el estado de gestión.')
@@ -279,31 +316,36 @@ export default function CrmInbox({ token }: { token: string }) {
                     </button>
                   )}
                   {statusConfigs.filter(s => s.isActive).length > 0 && (
-                    <div className="relative">
+                    <div className="relative" ref={statusMenuRef}>
                       <button
+                        type="button"
+                        onClick={() => setStatusMenuOpen((open) => !open)}
                         className="border border-neutral-gray text-neutral-dark px-3 py-2 rounded text-sm flex items-center gap-1 hover:bg-neutral-light/50 transition-colors"
                       >
                         <ChevronDown className="w-4 h-4" />
                         <span>Cambiar estado</span>
                       </button>
-                      <div className="absolute right-0 mt-1 w-48 bg-white border border-neutral-gray rounded-md shadow-lg z-10 py-1">
-                        {statusConfigs
-                          .filter(s => s.isActive)
-                          .map((s) => (
-                            <button
-                              key={s.code}
-                              onClick={() => handleBusinessStatusChange(s.code)}
-                              className="w-full px-3 py-2 text-left text-sm hover:bg-neutral-light/50 flex items-center gap-2"
-                            >
-                              <span
-                                className="w-3 h-3 rounded-full"
-                                style={{ backgroundColor: s.color }}
-                              />
-                              <span>{s.label}</span>
-                              {s.isFinal && <span className="ml-auto px-1.5 py-0.5 bg-green-100 text-green-800 text-[10px] rounded">Final</span>}
-                            </button>
-                          ))}
-                      </div>
+                      {statusMenuOpen && (
+                        <div className="absolute right-0 mt-1 w-48 bg-white border border-neutral-gray rounded-md shadow-lg z-10 py-1">
+                          {statusConfigs
+                            .filter(s => s.isActive)
+                            .map((s) => (
+                              <button
+                                key={s.code}
+                                type="button"
+                                onClick={() => handleBusinessStatusChange(s.code)}
+                                className="w-full px-3 py-2 text-left text-sm hover:bg-neutral-light/50 flex items-center gap-2"
+                              >
+                                <span
+                                  className="w-3 h-3 rounded-full"
+                                  style={{ backgroundColor: s.color }}
+                                />
+                                <span>{s.label}</span>
+                                {s.isFinal && <span className="ml-auto px-1.5 py-0.5 bg-green-100 text-green-800 text-[10px] rounded">Final</span>}
+                              </button>
+                            ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
