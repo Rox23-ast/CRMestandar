@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { AuthenticatedRequest } from '../../core/auth/authMiddleware';
 import { prisma } from '../../core/database/prisma';
-import { sendWhatsAppMessage, sendWhatsAppDocument, uploadWhatsAppMedia, sendWhatsAppMedia, WhatsAppMediaType } from '../../bot/services/whatsappService';
+import { sendWhatsAppMessage, sendWhatsAppDocument, uploadWhatsAppMedia, sendWhatsAppMedia, getWhatsAppMedia, downloadWhatsAppMedia, WhatsAppMediaType } from '../../bot/services/whatsappService';
 import {
   DEFAULT_WEEKLY_SCHEDULE,
   manuallyAssignConversation,
@@ -32,6 +32,8 @@ const startConversationSchema = z.object({
   phone: z.string().trim().regex(/^\+?\d{7,20}$/, 'Phone must be digits with optional +'),
   body: z.string().trim().min(1).max(4096)
 });
+
+const mediaIdSchema = z.string().regex(/^[\w.-]{5,200}$/, 'Media ID is invalid');
 
 const assignmentSchema = z.object({
   userId: z.string().uuid()
@@ -541,6 +543,27 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
     );
   }
   return res.status(201).json({ conversation, message });
+};
+
+/**
+ * GET /api/crm/media/:id
+ * Proxy autenticado para visualizar/descargar el binario de un media de
+ * WhatsApp (imagen, video, audio o documento recibido del cliente).
+ */
+export const getMedia = async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return problem(res, 401, 'Authentication required');
+  const parsedId = mediaIdSchema.safeParse(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Media ID is invalid');
+
+  const media = await getWhatsAppMedia(parsedId.data);
+  if (!media) return problem(res, 404, 'Media not found or WhatsApp credentials unavailable');
+
+  const buffer = await downloadWhatsAppMedia(media.url);
+  if (!buffer) return problem(res, 502, 'Media download failed');
+
+  res.set('Content-Type', media.mimeType);
+  res.set('Cache-Control', 'private, max-age=3600');
+  return res.send(buffer);
 };
 
 export const listNotifications = async (req: AuthenticatedRequest, res: Response) => {

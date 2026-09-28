@@ -18,6 +18,7 @@ import {
   claimConversation,
   getConversation,
   getBusinessHours,
+  getMedia,
   getSlaPolicy,
   listAssignableUsers,
   listConversationStatuses,
@@ -59,6 +60,7 @@ crmRouter.get('/leads', listLeads);
 crmRouter.get('/conversations', listConversations);
 crmRouter.post('/conversations/start', startConversation);
 crmRouter.get('/conversations/:id', getConversation);
+crmRouter.get('/media/:id', getMedia);
 crmRouter.post('/conversations/:id/claim', claimConversation);
 crmRouter.post('/conversations/:id/bot', reactivateBot);
 crmRouter.post('/conversations/:id/assign', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), assignConversation);

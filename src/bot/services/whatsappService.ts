@@ -200,3 +200,65 @@ export const sendWhatsAppMedia = async (
     return false;
   }
 };
+
+/**
+ * Resuelve un media id de WhatsApp a su URL temporal de descarga y MIME.
+ */
+export const getWhatsAppMedia = async (
+  mediaId: string
+): Promise<{ url: string; mimeType: string } | null> => {
+  const creds = await getRawCredentials();
+  const token = creds.WA_API_TOKEN;
+
+  if (!token) {
+    console.error("Faltan las credenciales de WhatsApp (WA_API_TOKEN)");
+    return null;
+  }
+
+  try {
+    const response = await fetch(`https://graph.facebook.com/v17.0/${mediaId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (!response.ok) {
+      console.error('Error resolviendo media de WhatsApp:', response.status);
+      return null;
+    }
+
+    const data = await response.json() as { url?: string; mime_type?: string };
+    if (!data.url) return null;
+    return { url: data.url, mimeType: data.mime_type ?? 'application/octet-stream' };
+  } catch (error) {
+    console.error('Error de red resolviendo media de WhatsApp:', error);
+    return null;
+  }
+};
+
+/**
+ * Descarga el binario de una URL de media de WhatsApp (requiere el token).
+ */
+export const downloadWhatsAppMedia = async (url: string): Promise<Buffer | null> => {
+  const creds = await getRawCredentials();
+  const token = creds.WA_API_TOKEN;
+
+  if (!token) {
+    console.error("Faltan las credenciales de WhatsApp (WA_API_TOKEN)");
+    return null;
+  }
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (!response.ok) {
+      console.error('Error descargando media de WhatsApp:', response.status);
+      return null;
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  } catch (error) {
+    console.error('Error de red descargando media de WhatsApp:', error);
+    return null;
+  }
+};

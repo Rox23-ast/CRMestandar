@@ -1,8 +1,8 @@
 import { Response } from 'express';
-import { statusSchema, listAssignableUsers, sendAgentAttachment, startConversation } from '../conversationController';
+import { statusSchema, listAssignableUsers, sendAgentAttachment, startConversation, getMedia } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
 import { recordOutboundMessage } from '../../services/conversationService';
-import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage } from '../../../bot/services/whatsappService';
+import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
 
 jest.mock('../../../core/database/prisma', () => ({
   prisma: {
@@ -19,7 +19,9 @@ jest.mock('../../services/conversationService', () => ({
 jest.mock('../../../bot/services/whatsappService', () => ({
   uploadWhatsAppMedia: jest.fn(),
   sendWhatsAppMedia: jest.fn(),
-  sendWhatsAppMessage: jest.fn()
+  sendWhatsAppMessage: jest.fn(),
+  getWhatsAppMedia: jest.fn(),
+  downloadWhatsAppMedia: jest.fn()
 }));
 
 const mockPrisma = prisma as unknown as {
@@ -31,6 +33,8 @@ const mockRecordOutbound = recordOutboundMessage as jest.Mock;
 const mockUploadMedia = uploadWhatsAppMedia as jest.Mock;
 const mockSendMedia = sendWhatsAppMedia as jest.Mock;
 const mockSendWhatsApp = sendWhatsAppMessage as jest.Mock;
+const mockGetMedia = getWhatsAppMedia as jest.Mock;
+const mockDownloadMedia = downloadWhatsAppMedia as jest.Mock;
 
 describe('conversationController - statusSchema', () => {
   it('accepts a businessStatus-only update (panel dropdown)', () => {
@@ -244,5 +248,57 @@ describe('conversationController - startConversation', () => {
         detail: expect.stringContaining('plantilla')
       })
     );
+  });
+});
+
+describe('conversationController - getMedia', () => {
+  const makeReq = (params: Record<string, unknown> = {}) => ({
+    user: { id: 'agent-1', role: 'AGENT' },
+    params,
+    ...{}
+  }) as never;
+  const makeRes = () => {
+    const res = {
+      set: jest.fn(),
+      send: jest.fn(),
+      status: jest.fn(),
+      json: jest.fn()
+    };
+    res.set.mockReturnValue(res);
+    res.send.mockReturnValue(res);
+    res.status.mockReturnValue(res);
+    res.json.mockReturnValue(res);
+    return res as unknown as Response & { set: jest.Mock; send: jest.Mock; status: jest.Mock; json: jest.Mock };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('streams the media binary with its mime type', async () => {
+    mockGetMedia.mockResolvedValue({ url: 'https://cdn.meta.example/1', mimeType: 'image/jpeg' } as never);
+    mockDownloadMedia.mockResolvedValue(Buffer.from('JPEGDATA') as never);
+
+    const res = makeRes();
+    await getMedia(makeReq({ id: '1022489778123456' }), res);
+
+    expect(res.set).toHaveBeenCalledWith('Content-Type', 'image/jpeg');
+    expect(res.send).toHaveBeenCalledWith(Buffer.from('JPEGDATA'));
+  });
+
+  it('returns 404 when the media id cannot be resolved', async () => {
+    mockGetMedia.mockResolvedValue(null as never);
+
+    const res = makeRes();
+    await getMedia(makeReq({ id: 'no-existe' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('returns 400 for an invalid media id', async () => {
+    const res = makeRes();
+    await getMedia(makeReq({ id: 'no válido!!' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
   });
 });

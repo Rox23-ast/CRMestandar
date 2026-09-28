@@ -33,6 +33,7 @@ type Message = {
   senderType: string
   type: string
   body?: string | null
+  mediaId?: string | null
   deliveryStatus: string
   createdAt: string
 }
@@ -62,6 +63,46 @@ const priorityLabels: Record<string, string> = {
 }
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` })
+
+const InboundMedia = ({ token, mediaId, type, body }: { token: string; mediaId: string; type: string; body?: string | null }) => {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    if (!mediaId) return
+    let objectUrl: string | null = null
+    let cancelled = false
+    axios
+      .get(`${API_URL}/api/crm/media/${mediaId}`, { headers: authHeaders(token), responseType: 'blob' })
+      .then((response) => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(response.data)
+        setUrl(objectUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true)
+      })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [mediaId, token])
+
+  if (!mediaId || failed) return <p>{body || `Archivo ${type.toLowerCase()} recibido.`}</p>
+  if (!url) return <p>Cargando {type.toLowerCase()}…</p>
+  if (type === 'IMAGE') return <img src={url} alt={body || 'imagen'} className="max-w-full rounded" />
+  if (type === 'VIDEO') return <video src={url} controls className="max-w-full rounded" />
+  if (type === 'AUDIO') return <audio src={url} controls className="w-full" />
+  if (type === 'DOCUMENT') {
+    return (
+      <div>
+        {body && <p className="mb-2">{body}</p>}
+        <a href={url} target="_blank" rel="noreferrer" download className="underline text-secondary">Descargar documento</a>
+      </div>
+    )
+  }
+  return <p>{body || `Archivo ${type.toLowerCase()} recibido.`}</p>
+}
 
 export default function CrmInbox({ token, userRole }: { token: string; userRole: string }) {
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -664,7 +705,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                   )}
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-6 space-y-3">{selected.messages.map((message) => <div key={message.id} className={`max-w-[80%] rounded-lg p-3 text-sm ${message.direction === 'OUTBOUND' ? 'ml-auto bg-primary text-white' : 'bg-white border border-neutral-gray text-neutral-dark'}`}><p>{message.body || `Archivo ${message.type.toLowerCase()} recibido.`}</p><p className="text-[10px] opacity-60 mt-1">{message.senderType} · {new Date(message.createdAt).toLocaleString()}</p></div>)}</div>
+              <div className="flex-1 overflow-y-auto p-6 space-y-3">{selected.messages.map((message) => <div key={message.id} className={`max-w-[80%] rounded-lg p-3 text-sm ${message.direction === 'OUTBOUND' ? 'ml-auto bg-primary text-white' : 'bg-white border border-neutral-gray text-neutral-dark'}`}>{message.mediaId && message.type !== 'TEXT' ? <InboundMedia token={token} mediaId={message.mediaId} type={message.type} body={message.body} /> : <p>{message.body || `Archivo ${message.type.toLowerCase()} recibido.`}</p>}<p className="text-[10px] opacity-60 mt-1">{message.senderType} · {new Date(message.createdAt).toLocaleString()}</p></div>)}</div>
               <div className="bg-white border-t border-neutral-gray">
                 {attachment && !recording && (
                   <div className="px-4 pt-3 flex items-center gap-2 text-sm">
