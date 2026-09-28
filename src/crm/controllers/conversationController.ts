@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { AuthenticatedRequest } from '../../core/auth/authMiddleware';
 import { prisma } from '../../core/database/prisma';
-import { sendWhatsAppMessage } from '../../bot/services/whatsappService';
+import { sendWhatsAppMessage, sendWhatsAppDocument, uploadWhatsAppMedia, sendWhatsAppMedia, WhatsAppMediaType } from '../../bot/services/whatsappService';
 import {
   DEFAULT_WEEKLY_SCHEDULE,
   manuallyAssignConversation,
@@ -29,6 +29,13 @@ const messageSchema = z.object({
 
 const assignmentSchema = z.object({
   userId: z.string().uuid()
+});
+
+const attachmentQuerySchema = z.object({
+  type: z.enum(['image', 'audio', 'video', 'document']),
+  mediaType: z.string().min(1).max(100).optional().default('application/octet-stream'),
+  filename: z.string().min(1).max(200).optional().default('archivo'),
+  caption: z.string().max(4096).optional()
 });
 
 const statusConfigCreateSchema = z.object({
@@ -408,6 +415,65 @@ export const sendAgentMessage = async (req: AuthenticatedRequest, res: Response)
   });
 
   if (!sent) return problem(res, 502, 'WhatsApp message could not be sent');
+  return res.status(201).json(message);
+};
+
+/**
+ * POST /api/crm/conversations/:id/attachments
+ * Recibe el archivo como body binario (express.raw) y lo sube a la Media API
+ * de Meta para enviarlo como imagen/audio/video/documento por WhatsApp.
+ */
+export const sendAgentAttachment = async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return problem(res, 401, 'Authentication required');
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Conversation ID is invalid');
+  const conversationId = parsedId.data;
+  const parsed = attachmentQuerySchema.safeParse(req.query);
+  if (!parsed.success) return problem(res, 400, 'Attachment parameters are invalid');
+
+  const buffer = req.body as Buffer | undefined;
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    return problem(res, 400, 'Attachment body is empty');
+  }
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId }
+  });
+  if (!conversation) return problem(res, 404, 'Conversation not found');
+  if (!canSeeAllConversations(req.user.role) && conversation.assignedUserId !== req.user.id) {
+    return problem(res, 403, 'Conversation is not assigned to this user');
+  }
+
+  const client = await prisma.client.findUnique({ where: { id: conversation.clientId } });
+  if (!client) return problem(res, 404, 'Conversation client not found');
+
+  const { type, mediaType, filename, caption } = parsed.data;
+  const uploaded = await uploadWhatsAppMedia(buffer, mediaType, filename);
+  if (!uploaded.id) {
+    return problem(res, 502, 'WhatsApp media upload failed', uploaded.error ?? 'Meta rejected the file');
+  }
+
+  const sent = await sendWhatsAppMedia(
+    client.phone,
+    type as WhatsAppMediaType,
+    uploaded.id,
+    caption,
+    filename
+  );
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { status: 'HUMAN_ACTIVE' }
+  });
+  const message = await recordOutboundMessage({
+    conversationId: conversation.id,
+    body: caption ?? `Archivo ${type} enviado.`,
+    senderType: 'AGENT',
+    deliveryStatus: sent ? 'SENT' : 'FAILED',
+    type: type.toUpperCase(),
+    mediaId: uploaded.id
+  });
+
+  if (!sent) return problem(res, 502, 'WhatsApp media message could not be sent');
   return res.status(201).json(message);
 };
 

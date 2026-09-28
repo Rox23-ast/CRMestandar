@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { MessageCircle, Send, UserCheck, UserPlus, Bot, ChevronDown, X } from 'lucide-react'
+import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, ChevronDown, X } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -39,6 +39,12 @@ type Message = {
 
 type ConversationDetail = Conversation & { messages: Message[] }
 
+type PendingAttachment = {
+  file: File
+  mime: string
+  kind: 'image' | 'audio' | 'video' | 'document'
+}
+
 const statusLabels: Record<string, string> = {
   NEW: 'Nueva',
   BOT_ACTIVE: 'Bot activo',
@@ -72,7 +78,14 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [assignMenuOpen, setAssignMenuOpen] = useState(false)
   const [botEnabled, setBotEnabled] = useState(true)
   const [togglingBot, setTogglingBot] = useState(false)
+  const [attachment, setAttachment] = useState<PendingAttachment | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [recordSeconds, setRecordSeconds] = useState(0)
   const botConfigRef = useRef<Record<string, unknown> | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const recordTimerRef = useRef<number | null>(null)
   const statusMenuRef = useRef<HTMLDivElement | null>(null)
   const assignMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedIdRef = useRef<string | null>(null)
@@ -264,7 +277,12 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
 
   const handleSend = async (event: FormEvent) => {
     event.preventDefault()
-    if (!selected || !draft.trim()) return
+    if (!selected) return
+    if (attachment) {
+      await sendAttachment()
+      return
+    }
+    if (!draft.trim()) return
     try {
       await axios.post(
         `${API_URL}/api/crm/conversations/${selected.id}/messages`,
@@ -275,6 +293,82 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       await Promise.all([loadConversation(selected.id), loadConversations()])
     } catch {
       setError('No fue posible enviar el mensaje por WhatsApp.')
+    }
+  }
+
+  const kindOfFile = (file: File): PendingAttachment['kind'] => {
+    if (file.type.startsWith('image/')) return 'image'
+    if (file.type.startsWith('video/')) return 'video'
+    if (file.type.startsWith('audio/')) return 'audio'
+    return 'document'
+  }
+
+  const handleFilePick = (file: File | undefined) => {
+    if (!file) return
+    setAttachment({ file, mime: file.type || 'application/octet-stream', kind: kindOfFile(file) })
+  }
+
+  const startRecording = async () => {
+    if (recording || !navigator.mediaDevices?.getUserMedia) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const preferred = ['audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm;codecs=opus']
+      const mime = preferred.find((m) => MediaRecorder.isTypeSupported(m)) ?? ''
+      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+      chunksRef.current = []
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data)
+      }
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop())
+        const blobType = recorder.mimeType || 'audio/webm'
+        const ext = blobType.includes('mp4') ? 'm4a' : blobType.includes('ogg') ? 'ogg' : 'webm'
+        const blob = new Blob(chunksRef.current, { type: blobType })
+        setAttachment({
+          file: new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type: blobType }),
+          mime: blobType,
+          kind: 'audio'
+        })
+        setRecording(false)
+        if (recordTimerRef.current !== null) {
+          clearInterval(recordTimerRef.current)
+          recordTimerRef.current = null
+        }
+      }
+      mediaRecorderRef.current = recorder
+      recorder.start()
+      setRecording(true)
+      setRecordSeconds(0)
+      recordTimerRef.current = window.setInterval(() => setRecordSeconds((s) => s + 1), 1000)
+    } catch {
+      setError('No fue posible acceder al micrófono.')
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+  }
+
+  const sendAttachment = async () => {
+    if (!selected || !attachment) return
+    try {
+      const params = new URLSearchParams()
+      params.set('type', attachment.kind)
+      params.set('mediaType', attachment.mime)
+      params.set('filename', attachment.file.name)
+      if (draft.trim()) params.set('caption', draft.trim())
+      await axios.post(
+        `${API_URL}/api/crm/conversations/${selected.id}/attachments?${params.toString()}`,
+        attachment.file,
+        { headers: { ...authHeaders(token), 'Content-Type': attachment.mime } }
+      )
+      setAttachment(null)
+      setDraft('')
+      await Promise.all([loadConversation(selected.id), loadConversations()])
+    } catch {
+      setError('No fue posible enviar el archivo por WhatsApp.')
     }
   }
 
@@ -500,7 +594,69 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-6 space-y-3">{selected.messages.map((message) => <div key={message.id} className={`max-w-[80%] rounded-lg p-3 text-sm ${message.direction === 'OUTBOUND' ? 'ml-auto bg-primary text-white' : 'bg-white border border-neutral-gray text-neutral-dark'}`}><p>{message.body || `Archivo ${message.type.toLowerCase()} recibido.`}</p><p className="text-[10px] opacity-60 mt-1">{message.senderType} · {new Date(message.createdAt).toLocaleString()}</p></div>)}</div>
-              <form onSubmit={handleSend} className="bg-white border-t border-neutral-gray p-4 flex gap-3"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Escribe una respuesta para WhatsApp..." className="flex-1 border border-neutral-gray rounded-md px-3 py-2" /><button className="bg-accent-gold text-white px-4 rounded-md flex items-center gap-2"><Send className="w-4 h-4" />Enviar</button></form>
+              <div className="bg-white border-t border-neutral-gray">
+                {attachment && !recording && (
+                  <div className="px-4 pt-3 flex items-center gap-2 text-sm">
+                    <span className="bg-secondary/10 text-secondary px-2 py-1 rounded flex items-center gap-2 flex-1 min-w-0">
+                      <span className="truncate">{attachment.file.name}</span>
+                      <span className="text-[10px] text-neutral-darkgray flex-shrink-0">
+                        {attachment.kind === 'audio' ? 'Nota de voz' : attachment.kind}
+                      </span>
+                    </span>
+                    <button type="button" onClick={() => setAttachment(null)} className="text-neutral-darkgray hover:text-red-500 p-1" title="Quitar archivo">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+                {recording && (
+                  <div className="px-4 pt-3 text-sm text-red-600 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    Grabando nota de voz… {recordSeconds}s
+                  </div>
+                )}
+                <form onSubmit={handleSend} className="p-4 flex gap-3 items-center">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={(event) => handleFilePick(event.target.files?.[0])}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-neutral-darkgray hover:text-secondary p-2 transition-colors"
+                    title="Adjuntar archivo (imagen, documento, video o audio)"
+                  >
+                    <Paperclip className="w-5 h-5" />
+                  </button>
+                  {recording ? (
+                    <button
+                      type="button"
+                      onClick={stopRecording}
+                      className="bg-red-500 text-white p-2 rounded-full"
+                      title="Detener y enviar grabación"
+                    >
+                      <Square className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void startRecording()}
+                      className="text-neutral-darkgray hover:text-secondary p-2 transition-colors"
+                      title="Grabar nota de voz"
+                    >
+                      <Mic className="w-5 h-5" />
+                    </button>
+                  )}
+                  <input
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    placeholder={attachment ? 'Comentario para el archivo (opcional)…' : 'Escribe una respuesta para WhatsApp...'}
+                    className="flex-1 border border-neutral-gray rounded-md px-3 py-2"
+                  />
+                  <button disabled={recording} className="bg-accent-gold text-white px-4 rounded-md flex items-center gap-2 disabled:opacity-50"><Send className="w-4 h-4" />Enviar</button>
+                </form>
+              </div>
             </>
           )}
         </section>

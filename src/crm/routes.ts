@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import express from 'express';
 import { requireCrmUser, requireCrmRole } from '../core/auth/authMiddleware';
 import {
   bootstrapAdmin,
@@ -30,6 +31,7 @@ import {
   markNotificationRead,
   reactivateBot,
   saveBusinessHourException,
+  sendAgentAttachment,
   sendAgentMessage,
   streamCrmEvents,
   updateBusinessHours,
@@ -61,6 +63,11 @@ crmRouter.post('/conversations/:id/assign', requireCrmRole('ADMIN', 'MARKETING_D
 crmRouter.get('/assignable-users', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), listAssignableUsers);
 crmRouter.patch('/conversations/:id/status', updateConversationStatus);
 crmRouter.post('/conversations/:id/messages', sendAgentMessage);
+crmRouter.post(
+  '/conversations/:id/attachments',
+  express.raw({ type: () => true, limit: '25mb' }),
+  sendAgentAttachment
+);
 crmRouter.get('/settings/sla', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), getSlaPolicy);
 crmRouter.put('/settings/sla', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), updateSlaPolicy);
 crmRouter.get('/settings/statuses', requireCrmUser, listConversationStatuses);

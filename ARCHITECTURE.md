@@ -83,6 +83,7 @@ Las rutas CRM, excepto `auth/bootstrap` y `auth/login`, requieren un JWT Bearer 
 - **Tipado Estricto:** TypeScript se utiliza en modo estricto para evitar errores en tiempo de ejecución.
 - **Testing:** Se utiliza `jest` (y `ts-jest`) para pruebas unitarias. Cada nueva funcionalidad en el `core` y módulos críticos debe estar cubierta por tests.
 - **Panel CRM inicial:** `frontend/src/CrmInbox.tsx` incluye login JWT, bandeja, historial, toma de control, reactivación del bot, respuesta por WhatsApp y consumo autenticado de SSE.
+- **Adjuntos y notas de voz:** la bandeja permite adjuntar archivos (imagen/documento/video/audio) y grabar notas de voz (MediaRecorder). `POST /api/crm/conversations/:id/attachments` recibe el binario (`express.raw`, 25 MB), lo sube a la Media API de Meta (`uploadWhatsAppMedia`) y lo envía por `type` con caption opcional (`sendWhatsAppMedia`); el mensaje outbound queda registrado con su `mediaId`. Si Meta rechaza el formato (p. ej. audio/webm de Chrome), se responde 502 con el detalle.
 
 ## 6. Despliegue del Panel Web
 

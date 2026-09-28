@@ -1,16 +1,34 @@
 import { Response } from 'express';
-import { statusSchema, listAssignableUsers } from '../conversationController';
+import { statusSchema, listAssignableUsers, sendAgentAttachment } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
+import { recordOutboundMessage } from '../../services/conversationService';
+import { uploadWhatsAppMedia, sendWhatsAppMedia } from '../../../bot/services/whatsappService';
 
 jest.mock('../../../core/database/prisma', () => ({
   prisma: {
-    user: { findMany: jest.fn() }
+    user: { findMany: jest.fn() },
+    conversation: { findUnique: jest.fn(), update: jest.fn() },
+    client: { findUnique: jest.fn() }
   }
+}));
+
+jest.mock('../../services/conversationService', () => ({
+  recordOutboundMessage: jest.fn()
+}));
+
+jest.mock('../../../bot/services/whatsappService', () => ({
+  uploadWhatsAppMedia: jest.fn(),
+  sendWhatsAppMedia: jest.fn()
 }));
 
 const mockPrisma = prisma as unknown as {
   user: { findMany: jest.Mock };
+  conversation: { findUnique: jest.Mock; update: jest.Mock };
+  client: { findUnique: jest.Mock };
 };
+const mockRecordOutbound = recordOutboundMessage as jest.Mock;
+const mockUploadMedia = uploadWhatsAppMedia as jest.Mock;
+const mockSendMedia = sendWhatsAppMedia as jest.Mock;
 
 describe('conversationController - statusSchema', () => {
   it('accepts a businessStatus-only update (panel dropdown)', () => {
@@ -65,5 +83,92 @@ describe('conversationController - listAssignableUsers', () => {
       { id: 'u-1', name: 'Ana Agente', role: 'AGENT' },
       { id: 'u-2', name: 'Directora Marketing', role: 'MARKETING_DIRECTOR' }
     ]);
+  });
+});
+
+describe('conversationController - sendAgentAttachment', () => {
+  const CONVERSATION_ID = '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60';
+  const makeReq = (overrides: Record<string, unknown> = {}) => ({
+    user: { id: 'admin-1', role: 'ADMIN' },
+    params: { id: CONVERSATION_ID },
+    query: { type: 'document', mediaType: 'application/pdf', filename: 'cotizacion.pdf', caption: 'Adjunto' },
+    body: Buffer.from('contenido-del-archivo'),
+    ...overrides
+  }) as never;
+  const makeRes = () => {
+    const res = {
+      status: jest.fn(),
+      json: jest.fn()
+    };
+    res.status.mockReturnValue(res);
+    res.json.mockReturnValue(res);
+    return res as unknown as Response & { status: jest.Mock; json: jest.Mock };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: CONVERSATION_ID, clientId: 'client-1', assignedUserId: null } as never);
+    mockPrisma.conversation.update.mockResolvedValue({} as never);
+    mockPrisma.client.findUnique.mockResolvedValue({ id: 'client-1', phone: '573001112233' } as never);
+    mockUploadMedia.mockResolvedValue({ id: 'media-1' } as never);
+    mockSendMedia.mockResolvedValue(true as never);
+    mockRecordOutbound.mockResolvedValue({ id: 'msg-1' } as never);
+  });
+
+  it('uploads the file, sends it as a document and records the outbound message', async () => {
+    const res = makeRes();
+    await sendAgentAttachment(makeReq(), res);
+
+    expect(mockUploadMedia).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'application/pdf',
+      'cotizacion.pdf'
+    );
+    expect(mockSendMedia).toHaveBeenCalledWith(
+      '573001112233',
+      'document',
+      'media-1',
+      'Adjunto',
+      'cotizacion.pdf'
+    );
+    expect(mockRecordOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'DOCUMENT',
+        mediaId: 'media-1',
+        senderType: 'AGENT',
+        deliveryStatus: 'SENT'
+      })
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('rejects an empty body', async () => {
+    const res = makeRes();
+    await sendAgentAttachment(makeReq({ body: Buffer.alloc(0) }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockUploadMedia).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 when Meta rejects the upload', async () => {
+    mockUploadMedia.mockResolvedValue({ id: null, error: 'Unsupported file type' } as never);
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(mockSendMedia).not.toHaveBeenCalled();
+  });
+
+  it('records FAILED and returns 502 when the media message fails', async () => {
+    mockSendMedia.mockResolvedValue(false as never);
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq(), res);
+
+    expect(mockRecordOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ deliveryStatus: 'FAILED' })
+    );
+    expect(res.status).toHaveBeenCalledWith(502);
   });
 });
