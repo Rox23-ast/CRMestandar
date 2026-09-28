@@ -45,12 +45,21 @@ const statusConfigDeleteSchema = z.object({
   id: z.string().uuid()
 });
 
-const statusSchema = z.object({
-  status: z.enum(['NEW', 'BOT_ACTIVE', 'HUMAN_ACTIVE', 'WAITING_CUSTOMER', 'RESOLVED', 'CLOSED']),
+export const statusSchema = z.object({
+  // status es opcional: el panel también usa este endpoint para actualizar
+  // solo el estado de gestión (businessStatus).
+  status: z.enum(['NEW', 'BOT_ACTIVE', 'HUMAN_ACTIVE', 'WAITING_CUSTOMER', 'RESOLVED', 'CLOSED']).optional(),
   priority: z.enum(['URGENT', 'HIGH', 'NORMAL', 'LOW']).optional(),
   nextFollowUpAt: z.string().datetime().nullable().optional(),
   businessStatus: z.string().optional()
-});
+}).refine(
+  (data) =>
+    data.status !== undefined ||
+    data.priority !== undefined ||
+    data.nextFollowUpAt !== undefined ||
+    data.businessStatus !== undefined,
+  { message: 'At least one field is required' }
+);
 
 const slaSchema = z.object({
   firstResponseMinutes: z.number().int().min(1).max(10080),
@@ -235,7 +244,8 @@ export const updateConversationStatus = async (req: AuthenticatedRequest, res: R
       data: {
         status: parsed.data.status,
         priority: parsed.data.priority,
-        nextFollowUpAt
+        nextFollowUpAt,
+        businessStatus: parsed.data.businessStatus
       }
     });
     await tx.auditEvent.create({
