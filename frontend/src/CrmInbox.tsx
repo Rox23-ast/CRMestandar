@@ -113,6 +113,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [unread, setUnread] = useState(0)
+  const [unreadConversations, setUnreadConversations] = useState<Set<string>>(new Set())
   const [statusConfigs, setStatusConfigs] = useState<BusinessStatusConfig[]>([])
   const [assignableUsers, setAssignableUsers] = useState<{ id: string; name: string; role: string }[]>([])
   const [filterStatus, setFilterStatus] = useState<string>('')
@@ -218,6 +219,12 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const loadConversation = async (id: string) => {
     const response = await axios.get(`${API_URL}/api/crm/conversations/${id}`, { headers: authHeaders(token) })
     setSelected(response.data)
+    setUnreadConversations((current) => {
+      if (!current.has(id)) return current
+      const next = new Set(current)
+      next.delete(id)
+      return next
+    })
   }
 
   useEffect(() => {
@@ -251,8 +258,12 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
               setUnread((current) => current + 1)
               void loadConversations()
               const match = chunk.match(/"conversationId":"([^"]+)"/)
-              if (match?.[1] && match[1] === selectedIdRef.current) {
-                void loadConversation(match[1]).catch(() => undefined)
+              if (match?.[1]) {
+                if (match[1] === selectedIdRef.current) {
+                  void loadConversation(match[1]).catch(() => undefined)
+                } else {
+                  setUnreadConversations((current) => new Set(current).add(match[1]))
+                }
               }
             }
           }
@@ -606,6 +617,9 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                 <div className="flex justify-between gap-2">
                   <strong className="text-primary truncate">{conversation.client.name || conversation.client.phone}</strong>
                   <span className="text-[11px] text-neutral-darkgray flex items-center gap-1 flex-shrink-0">
+                    {unreadConversations.has(conversation.id) && (
+                      <span className="bg-secondary text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full">Nuevo</span>
+                    )}
                     {conversation.source === 'ADS' && (
                       <span className="bg-blue-100 text-blue-800 text-[10px] font-medium px-1.5 py-0.5 rounded-full">Pauta</span>
                     )}
