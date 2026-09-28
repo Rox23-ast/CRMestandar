@@ -25,7 +25,19 @@ const webhookMessageSchema = z.object({
   type: z.string().min(1),
   text: z.object({ body: z.string() }).optional(),
   image: z.object({ id: z.string().min(1) }).optional(),
+  audio: z.object({ id: z.string().min(1) }).optional(),
+  video: z.object({ id: z.string().min(1), caption: z.string().optional() }).optional(),
   document: z.object({ id: z.string().min(1), caption: z.string().optional() }).optional(),
+  sticker: z.object({ id: z.string().min(1) }).optional(),
+  location: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+    name: z.string().optional(),
+    address: z.string().optional()
+  }).optional(),
+  contacts: z.array(z.object({
+    name: z.object({ formatted_name: z.string() }).passthrough()
+  }).passthrough()).optional(),
   // Present when the chat was initiated from a Meta ad (Click-to-WhatsApp):
   // context.from is the ad id and context.referral carries the ctwa payload.
   context: z.object({
@@ -38,6 +50,79 @@ const webhookMessageSchema = z.object({
     }).passthrough().optional()
   }).passthrough().optional()
 }).passthrough();
+
+export type InboundWhatsAppMessage = z.infer<typeof webhookMessageSchema>;
+
+/**
+ * Mapea un mensaje entrante de WhatsApp a { type, text, mediaId }.
+ * Cubre todos los tipos básicos de la Cloud API; los no soportados
+ * (interactive, button, reaction, system) quedan como UNSUPPORTED.
+ */
+export const parseInboundMessage = (
+  message: InboundWhatsAppMessage
+): { type: string; text?: string; mediaId?: string; adsContext?: { from?: string; referral?: Record<string, unknown> } } => {
+  let type = 'UNSUPPORTED';
+  let text: string | undefined;
+  let mediaId: string | undefined;
+
+  switch (message.type) {
+    case 'text':
+      type = 'TEXT';
+      text = message.text?.body;
+      break;
+    case 'image':
+      type = 'IMAGE';
+      mediaId = message.image?.id;
+      break;
+    case 'audio':
+      type = 'AUDIO';
+      mediaId = message.audio?.id;
+      break;
+    case 'video':
+      type = 'VIDEO';
+      mediaId = message.video?.id;
+      text = message.video?.caption;
+      break;
+    case 'document':
+      type = 'DOCUMENT';
+      mediaId = message.document?.id;
+      text = message.document?.caption;
+      break;
+    case 'sticker':
+      type = 'STICKER';
+      mediaId = message.sticker?.id;
+      break;
+    case 'location': {
+      type = 'LOCATION';
+      const location = message.location;
+      if (location) {
+        const place = [location.name, location.address].filter(Boolean).join(', ');
+        text = place
+          ? `Ubicación: ${place} (${location.latitude}, ${location.longitude})`
+          : `Ubicación: ${location.latitude}, ${location.longitude}`;
+      } else {
+        text = 'Ubicación compartida';
+      }
+      break;
+    }
+    case 'contacts': {
+      type = 'CONTACTS';
+      const names = (message.contacts ?? [])
+        .map((contact) => contact.name?.formatted_name)
+        .filter(Boolean);
+      text = names.length > 0 ? `Contacto: ${names.join(', ')}` : 'Contacto compartido';
+      break;
+    }
+    default:
+      break;
+  }
+
+  const adsContext = message.context?.from || message.context?.referral
+    ? { from: message.context.from, referral: message.context.referral }
+    : undefined;
+
+  return { type, text, mediaId, adsContext };
+};
 
 const webhookBodySchema = z.object({
   object: z.literal('whatsapp_business_account'),
@@ -93,28 +178,10 @@ export const receiveMessage = async (req: RawBodyRequest, res: Response) => {
           if (change.value?.messages) {
             for (const message of change.value.messages) {
             const from = message.from;
-            const type = message.type === 'text'
-              ? 'TEXT'
-              : message.type === 'image'
-                ? 'IMAGE'
-                : message.type === 'document'
-                  ? 'DOCUMENT'
-                  : 'UNSUPPORTED';
-            const text = message.type === 'text'
-              ? message.text?.body
-              : message.type === 'document'
-                ? message.document?.caption
-                : undefined;
-            const mediaId = message.image?.id ?? message.document?.id;
-            const adsContext = message.context?.from || message.context?.referral
-              ? {
-                  from: message.context.from,
-                  referral: message.context.referral
-                }
-              : undefined;
+            const parsed = parseInboundMessage(message);
 
-            console.log(`WhatsApp message received from ${from}: ${text ?? type}${adsContext ? ' [ADS]' : ''}`);
-            await processIncomingMessage(from, text, message.id, type, mediaId, adsContext);
+            console.log(`WhatsApp message received from ${from}: ${parsed.text ?? parsed.type}${parsed.adsContext ? ' [ADS]' : ''}`);
+            await processIncomingMessage(from, parsed.text, message.id, parsed.type, parsed.mediaId, parsed.adsContext);
             }
           }
         }

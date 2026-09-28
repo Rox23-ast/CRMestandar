@@ -90,7 +90,7 @@ const InboundMedia = ({ token, mediaId, type, body }: { token: string; mediaId: 
 
   if (!mediaId || failed) return <p>{body || `Archivo ${type.toLowerCase()} recibido.`}</p>
   if (!url) return <p>Cargando {type.toLowerCase()}…</p>
-  if (type === 'IMAGE') return <img src={url} alt={body || 'imagen'} className="max-w-full rounded" />
+  if (type === 'IMAGE' || type === 'STICKER') return <img src={url} alt={body || 'imagen'} className="max-w-full rounded" />
   if (type === 'VIDEO') return <video src={url} controls className="max-w-full rounded" />
   if (type === 'AUDIO') return <audio src={url} controls className="w-full" />
   if (type === 'DOCUMENT') {
