@@ -25,6 +25,21 @@ app.use(helmet({
   crossOriginOpenerPolicy: false,
   crossOriginEmbedderPolicy: false,
   originAgentCluster: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      // El panel carga los medios de WhatsApp como object URLs (blob:) para
+      // poder enviar el token de autorización en la descarga.
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      mediaSrc: ["'self'", 'blob:'],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", 'https:', "'unsafe-inline'"],
+      fontSrc: ["'self'", 'data:', 'https:'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'self'"],
+      upgradeInsecureRequests: []
+    }
+  }
 })); // Protects response headers.
 
 // CORS allowlist: same-origin requests are always allowed; cross-origin
