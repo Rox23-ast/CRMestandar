@@ -114,6 +114,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     const controller = new AbortController()
     eventAbort.current = controller
     const listen = async () => {
+      let reconnectDelay = 5000
       while (!controller.signal.aborted) {
         try {
           const response = await fetch(`${API_URL}/api/crm/events`, {
@@ -121,6 +122,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
             signal: controller.signal
           })
           if (!response.body) return
+          reconnectDelay = 5000
           const reader = response.body.getReader()
           const decoder = new TextDecoder()
           while (!controller.signal.aborted) {
@@ -136,7 +138,8 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
           // The inbox remains usable if the SSE connection is interrupted.
         }
         if (!controller.signal.aborted) {
-          await new Promise((resolve) => setTimeout(resolve, 5000))
+          await new Promise((resolve) => setTimeout(resolve, reconnectDelay))
+          reconnectDelay = Math.min(reconnectDelay * 2, 60000)
         }
       }
     }

@@ -65,11 +65,19 @@ app.post('/api/bot/webhook', receiveMessage);
 app.post('/api/integrations/cotizador/events', receiveCotizadorEvent);
 
 // Rate limiter to reduce brute-force and request-flooding attacks.
+// Generous enough for the CRM panel's polling + SSE reconnections;
+// authentication endpoints have their own stricter limiter below.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
+  max: 500, // Limit each IP to 500 requests per `window` (here, per 15 minutes)
   standardHeaders: true,
   legacyHeaders: false,
+  message: {
+    type: 'https://httpstatuses.com/429',
+    title: 'Too many requests',
+    status: 429,
+    detail: 'Too many requests, please try again later.'
+  }
 });
 app.use(limiter);
 
