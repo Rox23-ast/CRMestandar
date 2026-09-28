@@ -218,6 +218,15 @@ export const assignConversation = async (req: AuthenticatedRequest, res: Respons
   }
 };
 
+export const listAssignableUsers = async (_req: AuthenticatedRequest, res: Response) => {
+  const users = await prisma.user.findMany({
+    where: { isActive: true, role: { in: ['AGENT', 'MARKETING_DIRECTOR'] } },
+    select: { id: true, name: true, role: true },
+    orderBy: { name: 'asc' }
+  });
+  return res.json(users);
+};
+
 export const updateConversationStatus = async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return problem(res, 401, 'Authentication required');
   const parsed = statusSchema.safeParse(req.body);

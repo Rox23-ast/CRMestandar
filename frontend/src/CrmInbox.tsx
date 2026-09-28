@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { MessageCircle, Send, UserCheck, ChevronDown, X } from 'lucide-react'
+import { MessageCircle, Send, UserCheck, UserPlus, ChevronDown, X } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -56,19 +56,32 @@ const priorityLabels: Record<string, string> = {
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` })
 
-export default function CrmInbox({ token }: { token: string }) {
+export default function CrmInbox({ token, userRole }: { token: string; userRole: string }) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selected, setSelected] = useState<ConversationDetail | null>(null)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [unread, setUnread] = useState(0)
   const [statusConfigs, setStatusConfigs] = useState<BusinessStatusConfig[]>([])
+  const [assignableUsers, setAssignableUsers] = useState<{ id: string; name: string; role: string }[]>([])
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterIncludeFinal, setFilterIncludeFinal] = useState(false)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
+  const [assignMenuOpen, setAssignMenuOpen] = useState(false)
   const statusMenuRef = useRef<HTMLDivElement | null>(null)
+  const assignMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedIdRef = useRef<string | null>(null)
   const eventAbort = useRef<AbortController | null>(null)
+  const canAssign = userRole === 'ADMIN' || userRole === 'MARKETING_DIRECTOR'
+
+  const loadAssignableUsers = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/crm/assignable-users`, { headers: authHeaders(token) })
+      setAssignableUsers(response.data)
+    } catch {
+      // Assignment dropdown just stays empty if the list cannot be loaded.
+    }
+  }
 
   const loadStatusConfigs = async () => {
     try {
@@ -95,6 +108,7 @@ export default function CrmInbox({ token }: { token: string }) {
   useEffect(() => {
     if (!token) return
     loadStatusConfigs()
+    if (canAssign) void loadAssignableUsers()
     void loadConversations().catch(() => setError('No fue posible cargar las conversaciones.'))
 
     const controller = new AbortController()
@@ -153,6 +167,9 @@ export default function CrmInbox({ token }: { token: string }) {
       if (statusMenuRef.current && !statusMenuRef.current.contains(event.target as Node)) {
         setStatusMenuOpen(false)
       }
+      if (assignMenuRef.current && !assignMenuRef.current.contains(event.target as Node)) {
+        setAssignMenuOpen(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -182,6 +199,21 @@ export default function CrmInbox({ token }: { token: string }) {
       await Promise.all([loadConversation(selected.id), loadConversations()])
     } catch {
       setError('No fue posible actualizar el estado de gestión.')
+    }
+  }
+
+  const handleAssign = async (userId: string) => {
+    if (!selected) return
+    try {
+      await axios.post(
+        `${API_URL}/api/crm/conversations/${selected.id}/assign`,
+        { userId },
+        { headers: authHeaders(token) }
+      )
+      setAssignMenuOpen(false)
+      await Promise.all([loadConversation(selected.id), loadConversations()])
+    } catch {
+      setError('No fue posible asignar la conversación.')
     }
   }
 
@@ -291,7 +323,7 @@ export default function CrmInbox({ token }: { token: string }) {
               <div className="bg-white border-b border-neutral-gray p-5 flex flex-wrap justify-between gap-4">
                 <div>
                   <h2 className="font-cormorant text-2xl text-primary">{selected.client.name || selected.client.phone}</h2>
-                  <p className="text-sm text-neutral-darkgray">{statusLabels[selected.status] || selected.status} · {priorityLabels[selected.priority]}</p>
+                  <p className="text-sm text-neutral-darkgray">{statusLabels[selected.status] || selected.status} · {priorityLabels[selected.priority]} · Asignada a: {selected.assignedUser?.name || 'Sin asignar'}</p>
                   {selected.businessStatus && (
                     <div className="mt-1 flex items-center gap-2">
                       <span className="text-xs text-neutral-darkgray">Gestión:</span>
@@ -305,6 +337,38 @@ export default function CrmInbox({ token }: { token: string }) {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {canAssign && (
+                    <div className="relative" ref={assignMenuRef}>
+                      <button
+                        type="button"
+                        onClick={() => setAssignMenuOpen((open) => !open)}
+                        className="border border-secondary text-secondary px-3 py-2 rounded text-sm flex items-center gap-2 hover:bg-secondary/10 transition-colors"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        <span>Asignar</span>
+                      </button>
+                      {assignMenuOpen && (
+                        <div className="absolute right-0 mt-1 w-56 bg-white border border-neutral-gray rounded-md shadow-lg z-10 py-1 max-h-64 overflow-y-auto">
+                          {assignableUsers.length === 0 && (
+                            <p className="px-3 py-2 text-xs text-neutral-darkgray">No hay usuarios activos para asignar.</p>
+                          )}
+                          {assignableUsers.map((user) => (
+                            <button
+                              key={user.id}
+                              type="button"
+                              onClick={() => handleAssign(user.id)}
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-neutral-light/50 flex items-center justify-between gap-2"
+                            >
+                              <span className="truncate">{user.name}</span>
+                              <span className="text-[10px] text-neutral-darkgray flex-shrink-0">
+                                {user.role === 'MARKETING_DIRECTOR' ? 'Marketing' : 'Agente'}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {selected.status !== 'HUMAN_ACTIVE' && (
                     <button onClick={() => void handleTake()} className="bg-primary text-white px-3 py-2 rounded text-sm flex items-center gap-2">
                       <UserCheck className="w-4 h-4" />Tomar conversación

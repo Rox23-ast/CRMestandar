@@ -18,6 +18,7 @@ import {
   getConversation,
   getBusinessHours,
   getSlaPolicy,
+  listAssignableUsers,
   listConversationStatuses,
   createConversationStatus,
   updateConversationStatusConfig,
@@ -57,6 +58,7 @@ crmRouter.get('/conversations/:id', getConversation);
 crmRouter.post('/conversations/:id/claim', claimConversation);
 crmRouter.post('/conversations/:id/bot', reactivateBot);
 crmRouter.post('/conversations/:id/assign', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), assignConversation);
+crmRouter.get('/assignable-users', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), listAssignableUsers);
 crmRouter.patch('/conversations/:id/status', updateConversationStatus);
 crmRouter.post('/conversations/:id/messages', sendAgentMessage);
 crmRouter.get('/settings/sla', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), getSlaPolicy);
