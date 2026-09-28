@@ -37,6 +37,7 @@ import {
   startConversation,
   streamCrmEvents,
   updateBusinessHours,
+  updateConversationClient,
   updateConversationStatus,
   updateSlaPolicy
 } from './controllers/conversationController';
@@ -66,6 +67,7 @@ crmRouter.get('/leads', listLeads);
 crmRouter.get('/conversations', listConversations);
 crmRouter.post('/conversations/start', startConversation);
 crmRouter.get('/conversations/:id', getConversation);
+crmRouter.patch('/conversations/:id/client', updateConversationClient);
 crmRouter.get('/media/:id', getMedia);
 crmRouter.post('/conversations/:id/claim', claimConversation);
 crmRouter.post('/conversations/:id/bot', reactivateBot);

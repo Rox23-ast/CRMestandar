@@ -128,7 +128,15 @@ const webhookBodySchema = z.object({
   object: z.literal('whatsapp_business_account'),
   entry: z.array(z.object({
     changes: z.array(z.object({
-      value: z.object({ messages: z.array(webhookMessageSchema).optional() }).passthrough()
+      value: z.object({
+        messages: z.array(webhookMessageSchema).optional(),
+        // Meta incluye el perfil público del usuario (nombre de pantalla que
+        // el cliente configuró en WhatsApp) en cada webhook de mensajes.
+        contacts: z.array(z.object({
+          wa_id: z.string().min(1),
+          profile: z.object({ name: z.string().min(1) }).passthrough()
+        }).passthrough()).optional()
+      }).passthrough()
     }).passthrough())
   }).passthrough())
 }).passthrough();
@@ -176,12 +184,16 @@ export const receiveMessage = async (req: RawBodyRequest, res: Response) => {
       for (const entry of body.entry) {
         for (const change of entry.changes) {
           if (change.value?.messages) {
+            const contactNameByWaId = new Map(
+              (change.value.contacts ?? []).map((contact) => [contact.wa_id, contact.profile?.name])
+            );
             for (const message of change.value.messages) {
             const from = message.from;
             const parsed = parseInboundMessage(message);
+            const contactName = contactNameByWaId.get(from);
 
             console.log(`WhatsApp message received from ${from}: ${parsed.text ?? parsed.type}${parsed.adsContext ? ' [ADS]' : ''}`);
-            await processIncomingMessage(from, parsed.text, message.id, parsed.type, parsed.mediaId, parsed.adsContext);
+            await processIncomingMessage(from, parsed.text, message.id, parsed.type, parsed.mediaId, parsed.adsContext, contactName);
             }
           }
         }

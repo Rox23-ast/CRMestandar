@@ -369,4 +369,38 @@ describe('conversationFlow - cotizador integration', () => {
       expect(mockPrisma.conversation.update).not.toHaveBeenCalled();
     });
   });
+
+  describe('meta profile name', () => {
+    it('passes the WhatsApp profile name through to recordInboundMessage', async () => {
+      setup({
+        inbound: { conversationId: 'conv-1', status: 'BOT_ACTIVE', duplicate: false, isNew: true }
+      });
+
+      await processIncomingMessage(
+        '573001112233',
+        'hola',
+        'wamid.14',
+        'TEXT',
+        undefined,
+        undefined,
+        'Carlos Gómez'
+      );
+
+      expect(mockRecordInbound).toHaveBeenCalledWith(
+        expect.objectContaining({ contactName: 'Carlos Gómez' })
+      );
+    });
+
+    it('omits contactName when Meta did not provide it', async () => {
+      setup({
+        inbound: { conversationId: 'conv-1', status: 'BOT_ACTIVE', duplicate: false, isNew: true }
+      });
+
+      await processIncomingMessage('573001112233', 'hola', 'wamid.15');
+
+      expect(mockRecordInbound).toHaveBeenCalledWith(
+        expect.not.objectContaining({ contactName: expect.anything() })
+      );
+    });
+  });
 });

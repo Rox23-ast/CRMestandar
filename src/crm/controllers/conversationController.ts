@@ -46,6 +46,10 @@ const attachmentQuerySchema = z.object({
   caption: z.string().max(4096).optional()
 });
 
+const updateClientSchema = z.object({
+  name: z.string().trim().min(1).max(120).nullable()
+});
+
 const statusConfigCreateSchema = z.object({
   label: z.string().trim().min(1).max(60),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#64748b'),
@@ -191,6 +195,30 @@ export const getConversation = async (req: AuthenticatedRequest, res: Response) 
   }
 
   return res.json(conversation);
+};
+
+/**
+ * PATCH /api/crm/conversations/:id/client
+ * Registra/edita el nombre del cliente de la conversación.
+ */
+export const updateConversationClient = async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return problem(res, 401, 'Authentication required');
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Conversation ID is invalid');
+  const parsed = updateClientSchema.safeParse(req.body);
+  if (!parsed.success) return problem(res, 400, 'Client name is invalid');
+
+  const conversation = await prisma.conversation.findUnique({ where: { id: parsedId.data } });
+  if (!conversation) return problem(res, 404, 'Conversation not found');
+  if (!canSeeAllConversations(req.user.role) && conversation.assignedUserId !== req.user.id) {
+    return problem(res, 403, 'Conversation is not assigned to this user');
+  }
+
+  const client = await prisma.client.update({
+    where: { id: conversation.clientId },
+    data: { name: parsed.data.name }
+  });
+  return res.json(client);
 };
 
 export const claimConversation = async (req: AuthenticatedRequest, res: Response) => {

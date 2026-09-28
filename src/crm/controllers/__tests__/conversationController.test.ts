@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { statusSchema, listAssignableUsers, sendAgentAttachment, startConversation, getMedia } from '../conversationController';
+import { statusSchema, listAssignableUsers, sendAgentAttachment, startConversation, getMedia, updateConversationClient } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
 import { recordOutboundMessage } from '../../services/conversationService';
 import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
@@ -8,7 +8,7 @@ jest.mock('../../../core/database/prisma', () => ({
   prisma: {
     user: { findMany: jest.fn() },
     conversation: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
-    client: { findUnique: jest.fn(), upsert: jest.fn() }
+    client: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() }
   }
 }));
 
@@ -27,7 +27,7 @@ jest.mock('../../../bot/services/whatsappService', () => ({
 const mockPrisma = prisma as unknown as {
   user: { findMany: jest.Mock };
   conversation: { findUnique: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock };
-  client: { findUnique: jest.Mock; upsert: jest.Mock };
+  client: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
 };
 const mockRecordOutbound = recordOutboundMessage as jest.Mock;
 const mockUploadMedia = uploadWhatsAppMedia as jest.Mock;
@@ -236,6 +236,88 @@ describe('conversationController - sendAgentAttachment', () => {
 
     expect(res.status).toHaveBeenCalledWith(201);
     expect(mockUploadMedia).toHaveBeenCalled();
+  });
+});
+
+describe('conversationController - updateConversationClient', () => {
+  const CONVERSATION_ID = '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60';
+  const makeReq = (overrides: Record<string, unknown> = {}) => ({
+    user: { id: 'agent-1', role: 'AGENT' },
+    params: { id: CONVERSATION_ID },
+    body: { name: 'Carlos Gómez' },
+    ...overrides
+  }) as never;
+  const makeRes = () => {
+    const res = {
+      status: jest.fn(),
+      json: jest.fn()
+    };
+    res.status.mockReturnValue(res);
+    res.json.mockReturnValue(res);
+    return res as unknown as Response & { status: jest.Mock; json: jest.Mock };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: CONVERSATION_ID, clientId: 'client-1', assignedUserId: 'agent-1' } as never);
+    mockPrisma.client.update.mockResolvedValue({ id: 'client-1', phone: '573001112233', name: 'Carlos Gómez' } as never);
+  });
+
+  it('updates the client name of the conversation', async () => {
+    const res = makeRes();
+    await updateConversationClient(makeReq(), res);
+
+    expect(mockPrisma.client.update).toHaveBeenCalledWith({
+      where: { id: 'client-1' },
+      data: { name: 'Carlos Gómez' }
+    });
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'client-1', name: 'Carlos Gómez' })
+    );
+  });
+
+  it('clears the client name when null is sent', async () => {
+    const res = makeRes();
+    await updateConversationClient(makeReq({ body: { name: null } }), res);
+
+    expect(mockPrisma.client.update).toHaveBeenCalledWith({
+      where: { id: 'client-1' },
+      data: { name: null }
+    });
+  });
+
+  it('rejects an empty name (400)', async () => {
+    const res = makeRes();
+    await updateConversationClient(makeReq({ body: { name: '   ' } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockPrisma.client.update).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the conversation does not exist', async () => {
+    mockPrisma.conversation.findUnique.mockResolvedValue(null as never);
+    const res = makeRes();
+    await updateConversationClient(makeReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('returns 403 when an agent is not assigned to the conversation', async () => {
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: CONVERSATION_ID, clientId: 'client-1', assignedUserId: 'other-agent' } as never);
+    const res = makeRes();
+    await updateConversationClient(makeReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockPrisma.client.update).not.toHaveBeenCalled();
+  });
+
+  it('allows ADMIN and MARKETING_DIRECTOR to edit any conversation', async () => {
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: CONVERSATION_ID, clientId: 'client-1', assignedUserId: 'other-agent' } as never);
+    const res = makeRes();
+    await updateConversationClient(makeReq({ user: { id: 'admin-1', role: 'ADMIN' } }), res);
+
+    expect(res.json).toHaveBeenCalled();
+    expect(mockPrisma.client.update).toHaveBeenCalled();
   });
 });
 

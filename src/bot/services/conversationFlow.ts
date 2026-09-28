@@ -39,7 +39,8 @@ export const processIncomingMessage = async (
   externalId?: string,
   type = 'TEXT',
   mediaId?: string,
-  adsContext?: { from?: string; referral?: Record<string, unknown> }
+  adsContext?: { from?: string; referral?: Record<string, unknown> },
+  contactName?: string
 ) => {
   try {
     const inbound = await recordInboundMessage({
@@ -48,6 +49,7 @@ export const processIncomingMessage = async (
       type,
       mediaId,
       externalId,
+      contactName,
       metadata: adsContext ? { ads: adsContext } : undefined
     });
 

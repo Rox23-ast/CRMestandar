@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, X } from 'lucide-react'
+import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, X, ContactRound } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -131,6 +131,9 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [editingReplyId, setEditingReplyId] = useState<string | null>(null)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [assignMenuOpen, setAssignMenuOpen] = useState(false)
+  const [clientModalOpen, setClientModalOpen] = useState(false)
+  const [clientName, setClientName] = useState('')
+  const [savingClient, setSavingClient] = useState(false)
   const [botEnabled, setBotEnabled] = useState(true)
   const [togglingBot, setTogglingBot] = useState(false)
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null)
@@ -416,6 +419,32 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       await Promise.all([loadConversation(selected.id), loadConversations()])
     } catch {
       setError('No fue posible asignar la conversación.')
+    }
+  }
+
+  const openClientModal = () => {
+    if (!selected) return
+    setClientName(selected.client.name ?? '')
+    setClientModalOpen(true)
+  }
+
+  const saveClient = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!selected) return
+    setSavingClient(true)
+    try {
+      await axios.patch(
+        `${API_URL}/api/crm/conversations/${selected.id}/client`,
+        { name: clientName.trim() || null },
+        { headers: authHeaders(token) }
+      )
+      setClientModalOpen(false)
+      await Promise.all([loadConversation(selected.id), loadConversations()])
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setError(detail ? `No fue posible guardar el cliente: ${detail}` : 'No fue posible guardar el cliente.')
+    } finally {
+      setSavingClient(false)
     }
   }
 
@@ -839,6 +868,15 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={openClientModal}
+                    className="border border-accent-gold text-accent-gold px-3 py-2 rounded text-sm flex items-center gap-2 hover:bg-accent-gold/10 transition-colors"
+                    title="Registrar el nombre del cliente"
+                  >
+                    <ContactRound className="w-4 h-4" />
+                    <span>Agregar cliente</span>
+                  </button>
                   {canAssign && (
                     <div className="relative" ref={assignMenuRef}>
                       <button
@@ -1018,6 +1056,36 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
           )}
         </section>
       </div>
+      {clientModalOpen && selected && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setClientModalOpen(false)}>
+          <div className="bg-white rounded-xl p-6 w-full max-w-md" onClick={(event) => event.stopPropagation()}>
+            <h4 className="text-lg font-semibold text-primary mb-4">Agregar cliente</h4>
+            <form onSubmit={saveClient} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-neutral-dark mb-1">Nombre</label>
+                <input
+                  type="text"
+                  value={clientName}
+                  onChange={(event) => setClientName(event.target.value)}
+                  placeholder="Nombre del cliente"
+                  autoFocus
+                  className="w-full p-2.5 border border-neutral-gray rounded-md focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-neutral-dark mb-1">Teléfono (WhatsApp)</label>
+                <p className="text-sm text-neutral-darkgray p-2.5 bg-neutral-light/50 rounded-md border border-neutral-gray">{selected.client.phone}</p>
+              </div>
+              <div className="flex justify-end space-x-3 pt-4">
+                <button type="button" onClick={() => setClientModalOpen(false)} className="px-4 py-2 text-neutral-darkgray hover:text-primary transition-colors">Cancelar</button>
+                <button type="submit" disabled={savingClient} className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-md transition-colors disabled:opacity-50">
+                  {savingClient ? 'Guardando…' : 'Guardar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

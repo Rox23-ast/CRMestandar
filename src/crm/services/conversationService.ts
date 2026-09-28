@@ -191,13 +191,18 @@ const notifyAssignment = async (conversation: Conversation, target: AssignmentTa
   });
 };
 
-export const createOrGetConversation = async (phone: string, now = new Date()) => {
+export const createOrGetConversation = async (phone: string, now = new Date(), contactName?: string) => {
   const result = await prisma.$transaction(async (tx) => {
-    const client = await tx.client.upsert({
+    let client = await tx.client.upsert({
       where: { phone },
       update: {},
       create: { phone, botStep: 'START' }
     });
+    // Meta envía el nombre de perfil del usuario en cada webhook; lo usamos
+    // como nombre del cliente solo si aún no tiene uno.
+    if (contactName && !client.name) {
+      client = await tx.client.update({ where: { phone }, data: { name: contactName } });
+    }
     const existing = await tx.conversation.findFirst({
       where: { clientId: client.id, status: { in: [...ACTIVE_CONVERSATION_STATUSES] } },
       orderBy: { updatedAt: 'desc' }
@@ -232,6 +237,7 @@ export const recordInboundMessage = async (input: {
   type?: string;
   mediaId?: string;
   externalId?: string;
+  contactName?: string;
   metadata?: Record<string, unknown>;
 }) => {
   if (input.externalId) {
@@ -239,7 +245,7 @@ export const recordInboundMessage = async (input: {
     if (existing) return { conversationId: existing.conversationId, duplicate: true, isNew: false };
   }
 
-  const { conversation, isNew } = await createOrGetConversation(input.phone);
+  const { conversation, isNew } = await createOrGetConversation(input.phone, new Date(), input.contactName);
   const message = await prisma.message.create({
     data: {
       conversationId: conversation.id,
