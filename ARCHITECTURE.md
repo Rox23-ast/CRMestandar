@@ -72,8 +72,8 @@ Las rutas CRM, excepto `auth/bootstrap` y `auth/login`, requieren un JWT Bearer 
 ## 5. Evolución del Bot y Machine State
 
 - **Flujos de Conversación:** Se implementó una "Máquina de Estados" para el Bot (mediante la columna `botStep` en la tabla de Clientes). Esto permite que el chatbot recuerde la fase del cliente (Ej. `START`, `QUOTE_ORIGIN`, `QUOTE_DESTINATION`, `AGENT_HANDOFF`) sin perder contexto.
-- **Abstracción de IA (OpenAI):** Se integró el SDK oficial de OpenAI (`openai`) en `aiService.ts`. El chatbot utiliza el modelo `gpt-4o-mini` configurado con `response_format: { type: "json_object" }` para asegurar que las respuestas sean estructuradas. Esto permite que el LLM redacte respuestas naturales y extraiga la intención (`intent`) en una sola llamada a la API, optimizando costos y velocidad.
-- **Respuestas Rápidas deterministas:** Las reglas configuradas en *Respuestas Rápidas* (`customRules`) se evalúan por coincidencia de palabras clave (case-insensitive, separadas por coma) antes de llamar a la IA, en `matchQuickResponse()` de `conversationFlow.ts`. Si alguna regla coincide, el bot responde exactamente el texto configurado (con reemplazo de `[Nombre]` si el cliente tiene nombre registrado) sin depender de la disponibilidad o validez de la API de OpenAI. Solo los mensajes sin regla coincidente pasan al LLM.
+- **Abstracción de IA (multi-proveedor):** `aiService.ts` soporta **OpenAI** (`gpt-4o-mini`, SDK oficial, `response_format: json_object`), **Anthropic** (`claude-3-5-haiku-latest`, REST) y **Google Gemini** (`gemini-2.0-flash`, REST con `responseMimeType: application/json`). Se usa el **primer proveedor configurado** en orden OpenAI → Anthropic → Gemini; si un proveedor falla o devuelve JSON inválido, se pasa automáticamente al siguiente (cadena de fallback). Si ninguna clave está configurada, se usa el fallback `[MOCK]` NLP por palabras clave. El JSON se tolera con fences de markdown.
+- **Respuestas Rápidas deterministas:** Las reglas configuradas en *Respuestas Rápidas* (`customRules`) se evalúan por coincidencia de palabras clave (case-insensitive, separadas por coma) antes de llamar a la IA, en `matchQuickResponse()` de `conversationFlow.ts`. Si alguna regla coincide, el bot responde exactamente el texto configurado (con reemplazo de `[Nombre]` si el cliente tiene nombre registrado) sin depender de la disponibilidad o validez de las APIs de IA. Solo los mensajes sin regla coincidente pasan al LLM.
 
 - **Seguridad en Capa HTTP:** Se utiliza `helmet` para proteger cabeceras y `express-rate-limit` para evitar abusos en los endpoints.
 - **Validación de Webhooks (Meta/WhatsApp):** El GET valida el token de suscripción y el POST valida `x-hub-signature-256` con `WA_APP_SECRET`. El cuerpo original se conserva solo para verificar la firma. Se responde instantáneamente con status 200 después de validar la autenticidad, antes de procesar el mensaje para evitar reintentos de Meta.
@@ -150,7 +150,7 @@ Consumidores:
 - `verifyWebhook` (`GET /api/bot/webhook`): compara `hub.verify_token` contra `WA_VERIFY_TOKEN` de la DB.
 - `isValidMetaSignature` (`POST /api/bot/webhook`): valida `x-hub-signature-256` con `WA_APP_SECRET` de la DB.
 - `sendWhatsAppMessage`: usa `WA_API_TOKEN` y `WA_PHONE_NUMBER_ID` de la DB para enviar por Graph API.
-- `processMessageWithAI`: usa `OPENAI_API_KEY` de la DB para inicializar el cliente de OpenAI; si está vacía, usa el fallback Mock NLP.
+- `processMessageWithAI`: usa `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` y `GEMINI_API_KEY` de la DB; elige el primer proveedor configurado y hace fallback automático al siguiente si falla. Si ninguna está configurada, usa el fallback Mock NLP.
 
 Esto garantiza que los cambios hechos desde el panel CRM surtan efecto sin reiniciar el servidor ni editar el `.env`.
 

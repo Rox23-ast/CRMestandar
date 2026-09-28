@@ -206,6 +206,10 @@ export default function CredentialsSettings({ userRole, token }: { userRole: str
         <strong>Importante:</strong> Estas credenciales son sensibles y afectan el funcionamiento del chatbot. 
         Los valores se muestran enmascarados por seguridad. Al guardar, se cifran en la base de datos.
       </p>
+      <p className="text-sm text-neutral-darkgray mb-6 bg-blue-50 border border-blue-200 rounded-md p-4">
+        <strong>IA del bot:</strong> configura al menos una de las tres claves de IA (OpenAI, Anthropic o Gemini). 
+        El bot usará la primera disponible en ese orden y cambiará automáticamente a la siguiente si una falla.
+      </p>
 
       <div className="space-y-6">
         {CREDENTIAL_FIELDS.map((field) => (
