@@ -5,14 +5,14 @@ import { prisma } from '../../core/database/prisma';
 import { getRawCredentials } from '../../crm/services/credentialService';
 import { recordOutboundMessage } from '../../crm/services/conversationService';
 import { createNotification } from '../../crm/services/notificationService';
-import { sendWhatsAppMessage } from '../../bot/services/whatsappService';
+import { sendWhatsAppMessage, sendWhatsAppDocument } from '../../bot/services/whatsappService';
 
 jest.mock('../../core/database/prisma', () => ({
   prisma: {
     webhookEvent: { create: jest.fn(), delete: jest.fn() },
     quote: { findFirst: jest.fn(), update: jest.fn(), create: jest.fn() },
     conversation: { findUnique: jest.fn(), findFirst: jest.fn() },
-    client: { upsert: jest.fn() }
+    client: { upsert: jest.fn(), findUnique: jest.fn() }
   }
 }));
 
@@ -29,18 +29,20 @@ jest.mock('../../crm/services/notificationService', () => ({
 }));
 
 jest.mock('../../bot/services/whatsappService', () => ({
-  sendWhatsAppMessage: jest.fn()
+  sendWhatsAppMessage: jest.fn(),
+  sendWhatsAppDocument: jest.fn()
 }));
 
 const mockPrisma = prisma as unknown as {
   webhookEvent: { create: jest.Mock; delete: jest.Mock };
   quote: { findFirst: jest.Mock; update: jest.Mock; create: jest.Mock };
   conversation: { findUnique: jest.Mock; findFirst: jest.Mock };
-  client: { upsert: jest.Mock };
+  client: { upsert: jest.Mock; findUnique: jest.Mock };
 };
 const mockGetRawCredentials = getRawCredentials as jest.Mock;
 const mockRecordOutbound = recordOutboundMessage as jest.Mock;
 const mockSendWhatsApp = sendWhatsAppMessage as jest.Mock;
+const mockSendWhatsAppDocument = sendWhatsAppDocument as jest.Mock;
 const mockCreateNotification = createNotification as jest.Mock;
 
 const SECRET = 'c'.repeat(64);
@@ -72,6 +74,21 @@ const buildCreatedEvent = (overrides: Record<string, unknown> = {}) => ({
     client: { phone: '573001112233', name: 'Ana Web' },
     quote: { origin: 'Bogotá', destination: 'Medellín', volumeM3: 12.5, price: 850000 },
     status: 'PENDING'
+  },
+  ...overrides
+});
+
+const buildEstimatedEvent = (overrides: Record<string, unknown> = {}) => ({
+  event: 'quote.estimated',
+  version: 1,
+  id: EVENT_ID,
+  timestamp: new Date().toISOString(),
+  data: {
+    quoteExternalId: 'qz-ext-1',
+    conversationId: CONVERSATION_ID,
+    client: { phone: '573001112233', name: 'María' },
+    price: 850000,
+    pdfUrl: 'https://cotizador.chicologistica.com/files/qz-ext-1.pdf'
   },
   ...overrides
 });
@@ -116,6 +133,7 @@ beforeEach(() => {
   mockPrisma.webhookEvent.create.mockResolvedValue({} as never);
   mockPrisma.webhookEvent.delete.mockResolvedValue({} as never);
   mockSendWhatsApp.mockResolvedValue(true as never);
+  mockSendWhatsAppDocument.mockResolvedValue(true as never);
   mockRecordOutbound.mockResolvedValue({} as never);
   mockCreateNotification.mockResolvedValue({} as never);
 });
@@ -410,5 +428,93 @@ describe('POST /api/integrations/cotizador/events', () => {
       expect.objectContaining({ conversationId: 'conv-recent', senderType: 'BOT' })
     );
     expect(mockCreateNotification).not.toHaveBeenCalled();
+  });
+
+  it('delivers the estimate PDF via WhatsApp and records a DOCUMENT message', async () => {
+    const body = buildEstimatedEvent();
+    mockPrisma.quote.findFirst.mockResolvedValue({ id: 'local-quote-1', clientId: 'client-1' } as never);
+    mockPrisma.quote.update.mockResolvedValue({} as never);
+    mockPrisma.client.findUnique.mockResolvedValue({ id: 'client-1', phone: '573001112233', name: 'María' } as never);
+
+    const res = makeRes();
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(res.json).toHaveBeenCalledWith({ received: true });
+    expect(mockPrisma.quote.update).toHaveBeenCalledWith({
+      where: { id: 'local-quote-1' },
+      data: {
+        documentUrl: body.data.pdfUrl,
+        price: 850000
+      }
+    });
+    expect(mockSendWhatsAppDocument).toHaveBeenCalledWith(
+      '573001112233',
+      body.data.pdfUrl,
+      expect.stringContaining('estimado')
+    );
+    expect(mockRecordOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: CONVERSATION_ID,
+        senderType: 'BOT',
+        type: 'DOCUMENT',
+        mediaId: body.data.pdfUrl,
+        deliveryStatus: 'SENT'
+      })
+    );
+    expect(mockCreateNotification).not.toHaveBeenCalled();
+  });
+
+  it('falls back to internal notifications when the estimate has no conversation channel', async () => {
+    const body = buildEstimatedEvent({ data: { ...buildEstimatedEvent().data, conversationId: null } });
+    mockPrisma.quote.findFirst.mockResolvedValue({ id: 'local-quote-1', clientId: 'client-1' } as never);
+    mockPrisma.quote.update.mockResolvedValue({} as never);
+    mockPrisma.client.findUnique.mockResolvedValue({ id: 'client-1', phone: '573001112233', name: 'Ana Web' } as never);
+    mockPrisma.conversation.findFirst.mockResolvedValue(null as never);
+
+    const res = makeRes();
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(mockSendWhatsAppDocument).not.toHaveBeenCalled();
+    expect(mockCreateNotification).toHaveBeenCalledTimes(2);
+    expect(mockCreateNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'ADMIN', type: 'QUOTE_PDF_PENDING', body: expect.stringContaining('pdf') })
+    );
+  });
+
+  it('falls back to internal notifications when Meta rejects the document send', async () => {
+    const body = buildEstimatedEvent();
+    mockPrisma.quote.findFirst.mockResolvedValue({ id: 'local-quote-1', clientId: 'client-1' } as never);
+    mockPrisma.quote.update.mockResolvedValue({} as never);
+    mockPrisma.client.findUnique.mockResolvedValue({ id: 'client-1', phone: '573001112233', name: 'María' } as never);
+    mockSendWhatsAppDocument.mockResolvedValueOnce(false as never);
+
+    const res = makeRes();
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(mockRecordOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DOCUMENT', deliveryStatus: 'FAILED' })
+    );
+    expect(mockCreateNotification).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects an invalid quote.estimated payload without creating the dedup marker (400)', async () => {
+    const body = buildEstimatedEvent({ data: { quoteExternalId: 'q', pdfUrl: 'no-es-url' } });
+    const res = makeRes();
+
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockPrisma.webhookEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates a redelivered quote.estimated event id (200, no reprocessing)', async () => {
+    const body = buildEstimatedEvent();
+    mockPrisma.webhookEvent.create.mockRejectedValueOnce(new Error('Unique constraint')) as never;
+
+    const res = makeRes();
+    await receiveCotizadorEvent(signedReq(body), res);
+
+    expect(res.json).toHaveBeenCalledWith({ received: true, duplicate: true });
+    expect(mockSendWhatsAppDocument).not.toHaveBeenCalled();
   });
 });

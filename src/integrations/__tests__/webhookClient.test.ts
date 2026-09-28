@@ -77,7 +77,9 @@ describe('integrations - webhookClient', () => {
 
     const header = init.headers['X-Mudanzas-Signature'];
     expect(header).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
-    expect(signPayload(init.body, SECRET)).toBe(header);
+    // Re-sign with the timestamp from the header to avoid clock-drift flakiness.
+    const timestamp = Number(header.split(',')[0].split('=')[1]);
+    expect(signPayload(init.body, SECRET, timestamp)).toBe(header);
 
     expect(mockPrisma.webhookEvent.update).toHaveBeenCalledWith(
       expect.objectContaining({

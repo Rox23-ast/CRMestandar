@@ -73,6 +73,20 @@ export const quoteCreatedSchema = z.object({
   }),
 });
 
+export const quoteEstimatedSchema = z.object({
+  event: z.literal('quote.estimated'),
+  ...eventEnvelope,
+  data: z.object({
+    quoteExternalId: z.string().min(1).max(100),
+    // Present only for bot-born quotes; web-born quotes omit it.
+    conversationId: z.string().uuid().nullable().optional(),
+    client: clientSchema.optional(),
+    price: z.number().nonnegative().nullable().optional(),
+    // Public URL Meta can fetch via plain GET; must end in .pdf.
+    pdfUrl: z.string().url().max(500),
+  }),
+});
+
 // Minimal envelope used by the inbound endpoint to acknowledge unknown event
 // types with 200 before validating their specific payload.
 export const eventEnvelopeSchema = z.object({
@@ -86,4 +100,5 @@ export type QuoteRequestedEvent = z.infer<typeof quoteRequestedSchema>;
 export type QuoteCapturedEvent = z.infer<typeof quoteCapturedSchema>;
 export type QuoteStatusUpdatedEvent = z.infer<typeof quoteStatusUpdatedSchema>;
 export type QuoteCreatedEvent = z.infer<typeof quoteCreatedSchema>;
+export type QuoteEstimatedEvent = z.infer<typeof quoteEstimatedSchema>;
 export type OutboundEvent = QuoteRequestedEvent | QuoteCapturedEvent;

@@ -288,14 +288,17 @@ export const recordOutboundMessage = async (input: {
   body: string;
   senderType: 'BOT' | 'AGENT';
   deliveryStatus: string;
+  type?: string;
+  mediaId?: string;
 }) => {
   const message = await prisma.message.create({
     data: {
       conversationId: input.conversationId,
       direction: 'OUTBOUND',
       senderType: input.senderType,
-      type: 'TEXT',
+      type: input.type ?? 'TEXT',
       body: input.body,
+      mediaId: input.mediaId,
       deliveryStatus: input.deliveryStatus
     }
   });

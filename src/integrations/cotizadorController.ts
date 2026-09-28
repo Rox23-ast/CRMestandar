@@ -3,9 +3,9 @@ import { prisma } from '../core/database/prisma';
 import { getRawCredentials } from '../crm/services/credentialService';
 import { recordOutboundMessage } from '../crm/services/conversationService';
 import { createNotification } from '../crm/services/notificationService';
-import { sendWhatsAppMessage } from '../bot/services/whatsappService';
+import { sendWhatsAppMessage, sendWhatsAppDocument } from '../bot/services/whatsappService';
 import { verifySignature } from './signature';
-import { eventEnvelopeSchema, quoteStatusUpdatedSchema, quoteCreatedSchema } from './events';
+import { eventEnvelopeSchema, quoteStatusUpdatedSchema, quoteCreatedSchema, quoteEstimatedSchema } from './events';
 
 interface RawBodyRequest extends Request {
   rawBody?: Buffer;
@@ -218,6 +218,111 @@ const processQuoteStatusUpdate = async (
   }
 };
 
+const buildEstimateCaption = (price?: number | null): string => {
+  const withPrice = price !== undefined && price !== null ? ` por ${formatPrice(price)}` : '';
+  return `¡Hola! Aquí tienes el estimado de tu mudanza${withPrice}.`;
+};
+
+// Handles quote.estimated: stores the PDF URL on the Quote and delivers the
+// document via WhatsApp when a conversation channel is available (recent chat
+// within 24h). Otherwise it falls back to internal notifications with the URL.
+const processQuoteEstimated = async (
+  data: {
+    quoteExternalId: string;
+    conversationId?: string | null;
+    client?: { phone: string; name: string };
+    price?: number | null;
+    pdfUrl: string;
+  }
+) => {
+  const quote = await prisma.quote.findFirst({
+    where: {
+      OR: [
+        { externalId: data.quoteExternalId },
+        ...(data.conversationId ? [{ conversationId: data.conversationId }] : [])
+      ]
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  if (quote) {
+    await prisma.quote.update({
+      where: { id: quote.id },
+      data: {
+        documentUrl: data.pdfUrl,
+        ...(data.price !== undefined && data.price !== null ? { price: data.price } : {})
+      }
+    });
+  }
+
+  let clientId = quote?.clientId ?? null;
+  let phone: string | null = null;
+  let name: string | null = null;
+
+  if (clientId) {
+    const stored = await prisma.client.findUnique({ where: { id: clientId } });
+    phone = stored?.phone ?? null;
+    name = stored?.name ?? null;
+  }
+  if (!phone && data.client) {
+    const upserted = await upsertClientByPhone(data.client);
+    clientId = upserted.id;
+    phone = upserted.phone;
+    name = upserted.name;
+  }
+
+  const caption = buildEstimateCaption(data.price);
+
+  let conversationId = data.conversationId ?? null;
+  if (!conversationId && clientId) {
+    const recentWindow = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recent = await prisma.conversation.findFirst({
+      where: {
+        clientId,
+        lastMessageAt: { gte: recentWindow },
+        status: { in: ['NEW', 'BOT_ACTIVE', 'HUMAN_ACTIVE', 'WAITING_CUSTOMER'] }
+      },
+      orderBy: { lastMessageAt: 'desc' }
+    });
+    conversationId = recent?.id ?? null;
+  }
+
+  let delivered = false;
+  if (conversationId && phone) {
+    const sent = await sendWhatsAppDocument(phone, data.pdfUrl, caption);
+    delivered = sent;
+    await recordOutboundMessage({
+      conversationId,
+      body: caption,
+      senderType: 'BOT',
+      deliveryStatus: sent ? 'SENT' : 'FAILED',
+      type: 'DOCUMENT',
+      mediaId: data.pdfUrl
+    });
+  }
+
+  if (!delivered) {
+    // No WhatsApp channel available (no conversation, or Meta rejected the
+    // send, e.g., outside the 24h customer service window).
+    const label = name || phone || 'Cliente';
+    const reason = !conversationId
+      ? 'sin conversación activa'
+      : 'envío rechazado por WhatsApp (posible ventana de 24h)';
+    try {
+      for (const role of ['ADMIN', 'MARKETING_DIRECTOR']) {
+        await createNotification({
+          role,
+          type: 'QUOTE_PDF_PENDING',
+          title: 'Estimado pendiente de envío',
+          body: `${label} tiene un estimado listo (${reason}). PDF: ${data.pdfUrl}`
+        });
+      }
+    } catch (error) {
+      console.error('[Cotizador] Error creating internal notification for PDF:', error);
+    }
+  }
+};
+
 /**
  * POST /api/integrations/cotizador/events
  * Receives quote.status.updated callbacks from the external cotizador.
@@ -256,6 +361,13 @@ export const receiveCotizadorEvent = async (req: RawBodyRequest, res: Response) 
     const parsed = quoteCreatedSchema.safeParse(req.body);
     if (!parsed.success) return problem(res, 400, 'Invalid event payload');
     return handleQuoteCreated(parsed.data, res);
+  }
+
+  const isQuoteEstimated = envelope.data.event === 'quote.estimated';
+  if (isQuoteEstimated) {
+    const parsed = quoteEstimatedSchema.safeParse(req.body);
+    if (!parsed.success) return problem(res, 400, 'Invalid event payload');
+    return handleQuoteEstimated(parsed.data, res);
   }
 
   // Unknown event type: acknowledge (200) so the sender does not retry forever.
@@ -323,6 +435,23 @@ const handleQuoteCreated = async (
     await processQuoteCreated(payload.data);
   } catch (error) {
     console.error('[Cotizador] Error processing quote.created:', error);
+    await releaseEventMarker(payload.id);
+    return problem(res, 500, 'Event processing failed');
+  }
+  return res.json({ received: true });
+};
+
+const handleQuoteEstimated = async (
+  payload: ReturnType<typeof quoteEstimatedSchema.parse>,
+  res: Response
+) => {
+  const duplicate = await markEventProcessed(payload.id, payload.event, payload, 'PROCESSED');
+  if (duplicate) return res.json({ received: true, duplicate: true });
+
+  try {
+    await processQuoteEstimated(payload.data);
+  } catch (error) {
+    console.error('[Cotizador] Error processing quote.estimated:', error);
     await releaseEventMarker(payload.id);
     return problem(res, 500, 'Event processing failed');
   }

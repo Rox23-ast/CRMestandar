@@ -140,6 +140,28 @@ El cotizador lo emite al crear una cotización desde su formulario web (sin conv
 - `quote`, `status` y `createdAt` son opcionales (defaults: `''`/`''`/`null` para origen/destino/volumen, `PENDING` para el estado).
 - El CRM hace upsert del `Client` por teléfono y crea la `Quote` idempotentemente por `quoteExternalId` con `source: 'WEB'`.
 
+#### Evento `quote.estimated` (PDF del estimado)
+El cotizador lo emite cuando genera el estimado/PDF de una cotización, para que el bot lo entregue por WhatsApp.
+
+```json
+{
+  "event": "quote.estimated",
+  "version": 1,
+  "id": "e5f6a7b8-c9d0-4e1f-9a2b-3c4d5e6f7081",
+  "timestamp": "2026-09-27T22:00:00.000Z",
+  "data": {
+    "quoteExternalId": "q_abc123",
+    "conversationId": "uuid-de-la-conversacion | null",
+    "client": { "phone": "573001112233", "name": "María Pérez" },
+    "price": 850000,
+    "pdfUrl": "https://cotizador.chicologistica.com/files/q_abc123.pdf"
+  }
+}
+```
+
+- `pdfUrl` **debe** ser una URL pública que Meta pueda descargar con un GET plano (sin headers de auth) y terminar en `.pdf`.
+- Entrega en el CRM: guarda `Quote.documentUrl` (y `price` si viene) y envía el documento por WhatsApp (`type: document`) con caption del precio formateado si hay conversación (o conversación reciente ≤ 24h del cliente). Si no hay canal de WhatsApp o Meta rechaza el envío (p. ej. fuera de la ventana de 24h), se crean **notificaciones internas** (`QUOTE_PDF_PENDING`) para ADMIN y MARKETING_DIRECTOR con la URL del PDF para seguimiento manual.
+
 #### Notificaciones de cotizaciones web
 
 - **ACCEPTED/REJECTED con `conversationId`:** WhatsApp normal al cliente (flujo del bot).

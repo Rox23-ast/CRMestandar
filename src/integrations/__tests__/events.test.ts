@@ -3,6 +3,7 @@ import {
   quoteCapturedSchema,
   quoteStatusUpdatedSchema,
   quoteCreatedSchema,
+  quoteEstimatedSchema,
   eventEnvelopeSchema
 } from '../events';
 
@@ -214,6 +215,48 @@ describe('integrations - event schemas', () => {
           quoteExternalId: 'q_abc123',
           client: { phone: '573001112233', name: 'Ana' },
           status: 'SOLD'
+        }
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('quote.estimated', () => {
+    it('accepts a valid estimate payload for a bot quote', () => {
+      const result = quoteEstimatedSchema.safeParse({
+        event: 'quote.estimated',
+        ...envelope,
+        data: {
+          quoteExternalId: 'qz-123',
+          conversationId: '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60',
+          client: { phone: '573001112233', name: 'María' },
+          price: 850000,
+          pdfUrl: 'https://cotizador.chicologistica.com/files/qz-123.pdf'
+        }
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts a web estimate without conversationId', () => {
+      const result = quoteEstimatedSchema.safeParse({
+        event: 'quote.estimated',
+        ...envelope,
+        data: {
+          quoteExternalId: 'qz-web-1',
+          price: 850000,
+          pdfUrl: 'https://cotizador.chicologistica.com/files/qz-web-1.pdf'
+        }
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects a non-URL pdfUrl', () => {
+      const result = quoteEstimatedSchema.safeParse({
+        event: 'quote.estimated',
+        ...envelope,
+        data: {
+          quoteExternalId: 'qz-123',
+          pdfUrl: 'archivo.pdf'
         }
       });
       expect(result.success).toBe(false);
