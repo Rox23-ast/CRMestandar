@@ -41,6 +41,12 @@ import {
   updateSlaPolicy
 } from './controllers/conversationController';
 import { listLeads } from './controllers/leadController';
+import {
+  listQuickReplies,
+  createQuickReply,
+  updateQuickReply,
+  deleteQuickReply
+} from './controllers/quickReplyController';
 
 export const crmRouter = Router();
 
@@ -86,3 +92,7 @@ crmRouter.delete('/settings/business-hours/exceptions/:date', requireCrmRole('AD
 crmRouter.get('/notifications', listNotifications);
 crmRouter.patch('/notifications/:id/read', markNotificationRead);
 crmRouter.get('/events', streamCrmEvents);
+crmRouter.get('/quick-replies', listQuickReplies);
+crmRouter.post('/quick-replies', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), createQuickReply);
+crmRouter.patch('/quick-replies/:id', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), updateQuickReply);
+crmRouter.delete('/quick-replies/:id', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), deleteQuickReply);

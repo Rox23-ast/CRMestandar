@@ -168,6 +168,15 @@ model SlaPolicy {
   updatedAt            DateTime @updatedAt
 }
 
+// Mensajes rápidos para agentes: se insertan en la bandeja escribiendo "/".
+model QuickReply {
+  id        String   @id @default(uuid())
+  label     String   @unique // Nombre corto que aparece en el menú "/"
+  text      String   // Texto del mensaje que se inserta
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model BootstrapState {
   id          String   @id @default("default")
   completedAt DateTime?

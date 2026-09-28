@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, ChevronDown, X } from 'lucide-react'
+import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, X } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -124,6 +124,11 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [startOpen, setStartOpen] = useState(false)
   const [newPhone, setNewPhone] = useState('')
   const [newMessage, setNewMessage] = useState('')
+  const [quickReplies, setQuickReplies] = useState<{ id: string; label: string; text: string }[]>([])
+  const [repliesPanelOpen, setRepliesPanelOpen] = useState(false)
+  const [replyLabel, setReplyLabel] = useState('')
+  const [replyText, setReplyText] = useState('')
+  const [editingReplyId, setEditingReplyId] = useState<string | null>(null)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [assignMenuOpen, setAssignMenuOpen] = useState(false)
   const [botEnabled, setBotEnabled] = useState(true)
@@ -148,6 +153,56 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       setAssignableUsers(response.data)
     } catch {
       // Assignment dropdown just stays empty if the list cannot be loaded.
+    }
+  }
+
+  const loadQuickReplies = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/crm/quick-replies`, { headers: authHeaders(token) })
+      setQuickReplies(response.data)
+    } catch {
+      // Slash menu just stays empty if the list cannot be loaded.
+    }
+  }
+
+  const saveQuickReply = async () => {
+    const label = replyLabel.trim()
+    const text = replyText.trim()
+    if (!label || !text) return
+    try {
+      if (editingReplyId) {
+        await axios.patch(
+          `${API_URL}/api/crm/quick-replies/${editingReplyId}`,
+          { label, text },
+          { headers: authHeaders(token) }
+        )
+      } else {
+        await axios.post(
+          `${API_URL}/api/crm/quick-replies`,
+          { label, text },
+          { headers: authHeaders(token) }
+        )
+      }
+      setReplyLabel('')
+      setReplyText('')
+      setEditingReplyId(null)
+      await loadQuickReplies()
+    } catch {
+      setError('No fue posible guardar la respuesta rápida.')
+    }
+  }
+
+  const removeQuickReply = async (id: string) => {
+    try {
+      await axios.delete(`${API_URL}/api/crm/quick-replies/${id}`, { headers: authHeaders(token) })
+      if (editingReplyId === id) {
+        setEditingReplyId(null)
+        setReplyLabel('')
+        setReplyText('')
+      }
+      await loadQuickReplies()
+    } catch {
+      setError('No fue posible eliminar la respuesta rápida.')
     }
   }
 
@@ -230,6 +285,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   useEffect(() => {
     if (!token) return
     loadStatusConfigs()
+    void loadQuickReplies()
     if (canAssign) {
       void loadAssignableUsers()
       void loadBotEnabled()
@@ -486,6 +542,17 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     return config ? { label: config.label, color: config.color } : { label: code, color: '#94a3b8' }
   }
 
+  const slashIndex = draft.lastIndexOf('/')
+  const slashToken = slashIndex !== -1 ? draft.slice(slashIndex) : ''
+  const quickMenuVisible = slashToken.startsWith('/') && !slashToken.includes(' ') && !slashToken.includes('\n') && quickReplies.length > 0
+  const quickFilter = slashToken.slice(1).toLowerCase()
+  const quickMatches = quickFilter
+    ? quickReplies.filter((reply) => reply.label.toLowerCase().includes(quickFilter))
+    : quickReplies
+  const insertQuickReply = (reply: { label: string; text: string }) => {
+    setDraft(draft.slice(0, slashIndex) + reply.text)
+  }
+
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative bg-neutral-light">
       {error && <div className="bg-red-50 text-red-700 px-6 py-3 text-sm flex-shrink-0">{error}</div>}
@@ -607,6 +674,83 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
               >
                 + Nuevo chat con otro número
               </button>
+            )}
+            {canAssign && (
+              repliesPanelOpen ? (
+                <div className="space-y-2 pt-1 border-t border-neutral-gray">
+                  <p className="text-xs font-medium text-neutral-darkgray">Respuestas rápidas (escribe / en el chat)</p>
+                  <input
+                    value={replyLabel}
+                    onChange={(e) => setReplyLabel(e.target.value)}
+                    placeholder="Nombre corto (ej. saludo)"
+                    className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+                  />
+                  <textarea
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    rows={2}
+                    placeholder="Texto del mensaje…"
+                    className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white resize-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void saveQuickReply()}
+                      disabled={!replyLabel.trim() || !replyText.trim()}
+                      className="flex-1 bg-primary text-white px-3 py-1.5 rounded-md text-sm disabled:opacity-50"
+                    >
+                      {editingReplyId ? 'Actualizar' : 'Agregar'}
+                    </button>
+                    {editingReplyId && (
+                      <button
+                        type="button"
+                        onClick={() => { setEditingReplyId(null); setReplyLabel(''); setReplyText('') }}
+                        className="border border-neutral-gray text-neutral-dark px-3 py-1.5 rounded-md text-sm"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setRepliesPanelOpen(false)}
+                      className="border border-neutral-gray text-neutral-dark px-3 py-1.5 rounded-md text-sm"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {quickReplies.map((reply) => (
+                      <div key={reply.id} className="flex items-center justify-between gap-2 text-xs border border-neutral-gray rounded px-2 py-1">
+                        <span className="truncate font-medium text-primary">/{reply.label}</span>
+                        <span className="flex gap-1 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => { setEditingReplyId(reply.id); setReplyLabel(reply.label); setReplyText(reply.text) }}
+                            className="text-secondary hover:underline"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void removeQuickReply(reply.id)}
+                            className="text-red-500 hover:underline"
+                          >
+                            Eliminar
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setRepliesPanelOpen(true)}
+                  className="w-full border border-dashed border-accent-gold/60 text-accent-gold px-3 py-1.5 rounded-md text-sm hover:bg-accent-gold/10 transition-colors flex items-center justify-center gap-1"
+                >
+                  <Zap className="w-4 h-4" /> Respuestas rápidas
+                </button>
+              )
             )}
           </div>
           <div className="flex-1 overflow-y-auto">
@@ -811,12 +955,35 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                       <Mic className="w-5 h-5" />
                     </button>
                   )}
-                  <input
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    placeholder={attachment ? 'Comentario para el archivo (opcional)…' : 'Escribe una respuesta para WhatsApp...'}
-                    className="flex-1 border border-neutral-gray rounded-md px-3 py-2"
-                  />
+                  <div className="flex-1 relative">
+                    <input
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      placeholder={attachment ? 'Comentario para el archivo (opcional)…' : 'Escribe una respuesta para WhatsApp...'}
+                      className="w-full border border-neutral-gray rounded-md px-3 py-2"
+                    />
+                    {quickMenuVisible && (
+                      <div className="absolute bottom-full left-0 mb-1 w-full max-h-48 overflow-y-auto bg-white border border-neutral-gray rounded-md shadow-lg z-20">
+                        {quickMatches.length === 0 && (
+                          <p className="px-3 py-2 text-xs text-neutral-darkgray">Sin coincidencias</p>
+                        )}
+                        {quickMatches.map((reply) => (
+                          <button
+                            key={reply.id}
+                            type="button"
+                            onMouseDown={(event) => {
+                              event.preventDefault()
+                              insertQuickReply(reply)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-neutral-light/50 flex flex-col gap-0.5"
+                          >
+                            <span className="font-medium text-primary">/{reply.label}</span>
+                            <span className="text-xs text-neutral-darkgray truncate">{reply.text}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <button disabled={recording} className="bg-accent-gold text-white px-4 rounded-md flex items-center gap-2 disabled:opacity-50"><Send className="w-4 h-4" />Enviar</button>
                 </form>
               </div>
