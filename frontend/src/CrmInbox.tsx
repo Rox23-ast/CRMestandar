@@ -617,13 +617,13 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                 <div className="flex justify-between gap-2">
                   <span className={`truncate flex items-center gap-2 min-w-0 ${unreadConversations.has(conversation.id) ? 'font-bold text-primary' : ''}`}>
                     {unreadConversations.has(conversation.id) && (
-                      <span className="w-2.5 h-2.5 bg-green-500 rounded-full flex-shrink-0" title="Mensajes sin leer" />
+                      <span className="w-2.5 h-2.5 bg-red-500 rounded-full flex-shrink-0" title="Mensajes sin leer" />
                     )}
                     <strong className="truncate">{conversation.client.name || conversation.client.phone}</strong>
                   </span>
                   <span className="text-[11px] text-neutral-darkgray flex items-center gap-1 flex-shrink-0">
                     {unreadConversations.has(conversation.id) && (
-                      <span className="bg-secondary text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full">Nuevo</span>
+                      <span className="bg-red-500 text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full">No leído</span>
                     )}
                     {conversation.source === 'ADS' && (
                       <span className="bg-blue-100 text-blue-800 text-[10px] font-medium px-1.5 py-0.5 rounded-full">Pauta</span>
