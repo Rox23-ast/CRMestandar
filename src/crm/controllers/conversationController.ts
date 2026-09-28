@@ -454,6 +454,18 @@ export const sendAgentAttachment = async (req: AuthenticatedRequest, res: Respon
     return problem(res, 400, 'Attachment body is empty');
   }
 
+  // Límites de la Media API de Meta: imagen 5MB, video/audio 16MB.
+  const megabytes = buffer.length / (1024 * 1024);
+  if (parsed.data.type === 'image' && megabytes > 5) {
+    return problem(res, 413, 'Imagen demasiado grande', 'WhatsApp acepta imágenes de máximo 5 MB.');
+  }
+  if ((parsed.data.type === 'video' || parsed.data.type === 'audio') && megabytes > 16) {
+    return problem(res, 413, 'Archivo demasiado grande', 'WhatsApp acepta videos y audios de máximo 16 MB.');
+  }
+  if (parsed.data.type === 'document' && megabytes > 60) {
+    return problem(res, 413, 'Documento demasiado grande', 'El límite de subida es de 60 MB.');
+  }
+
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId }
   });

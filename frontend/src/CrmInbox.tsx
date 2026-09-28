@@ -470,7 +470,21 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
 
   const handleFilePick = (file: File | undefined) => {
     if (!file) return
-    setAttachment({ file, mime: file.type || 'application/octet-stream', kind: kindOfFile(file) })
+    const kind = kindOfFile(file)
+    const mb = file.size / (1024 * 1024)
+    if (kind === 'image' && mb > 5) {
+      setError('Las imágenes deben pesar máximo 5 MB.')
+      return
+    }
+    if ((kind === 'video' || kind === 'audio') && mb > 16) {
+      setError('Los videos y audios deben pesar máximo 16 MB.')
+      return
+    }
+    if (kind === 'document' && mb > 60) {
+      setError('Los documentos deben pesar máximo 60 MB.')
+      return
+    }
+    setAttachment({ file, mime: file.type || 'application/octet-stream', kind })
   }
 
   const startRecording = async () => {
@@ -532,8 +546,9 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       setAttachment(null)
       setDraft('')
       await Promise.all([loadConversation(selected.id), loadConversations()])
-    } catch {
-      setError('No fue posible enviar el archivo por WhatsApp.')
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setError(detail ? `No fue posible enviar el archivo: ${detail}` : 'No fue posible enviar el archivo por WhatsApp.')
     }
   }
 

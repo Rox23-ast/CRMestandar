@@ -75,7 +75,7 @@ crmRouter.patch('/conversations/:id/status', updateConversationStatus);
 crmRouter.post('/conversations/:id/messages', sendAgentMessage);
 crmRouter.post(
   '/conversations/:id/attachments',
-  express.raw({ type: () => true, limit: '25mb' }),
+  express.raw({ type: () => true, limit: '60mb' }),
   sendAgentAttachment
 );
 crmRouter.get('/settings/sla', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), getSlaPolicy);

@@ -177,6 +177,66 @@ describe('conversationController - sendAgentAttachment', () => {
     );
     expect(res.status).toHaveBeenCalledWith(502);
   });
+
+  it('rejects images larger than 5 MB (413)', async () => {
+    const bigBuffer = Buffer.alloc(6 * 1024 * 1024);
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq({ query: { type: 'image', mediaType: 'image/jpeg', filename: 'big.jpg' }, body: bigBuffer }), res);
+
+    expect(res.status).toHaveBeenCalledWith(413);
+    expect(mockUploadMedia).not.toHaveBeenCalled();
+  });
+
+  it('rejects videos larger than 16 MB (413)', async () => {
+    const bigBuffer = Buffer.alloc(17 * 1024 * 1024);
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq({ query: { type: 'video', mediaType: 'video/mp4', filename: 'big.mp4' }, body: bigBuffer }), res);
+
+    expect(res.status).toHaveBeenCalledWith(413);
+    expect(mockUploadMedia).not.toHaveBeenCalled();
+  });
+
+  it('rejects audio larger than 16 MB (413)', async () => {
+    const bigBuffer = Buffer.alloc(17 * 1024 * 1024);
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq({ query: { type: 'audio', mediaType: 'audio/ogg', filename: 'big.ogg' }, body: bigBuffer }), res);
+
+    expect(res.status).toHaveBeenCalledWith(413);
+    expect(mockUploadMedia).not.toHaveBeenCalled();
+  });
+
+  it('rejects documents larger than 60 MB (413)', async () => {
+    const bigBuffer = Buffer.alloc(61 * 1024 * 1024);
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq({ query: { type: 'document', mediaType: 'application/pdf', filename: 'big.pdf' }, body: bigBuffer }), res);
+
+    expect(res.status).toHaveBeenCalledWith(413);
+    expect(mockUploadMedia).not.toHaveBeenCalled();
+  });
+
+  it('accepts images under 5 MB', async () => {
+    const buffer = Buffer.alloc(5 * 1024 * 1024);
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq({ query: { type: 'image', mediaType: 'image/png', filename: 'ok.png' }, body: buffer }), res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockUploadMedia).toHaveBeenCalled();
+  });
+
+  it('accepts videos under 16 MB', async () => {
+    const buffer = Buffer.alloc(16 * 1024 * 1024);
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq({ query: { type: 'video', mediaType: 'video/mp4', filename: 'ok.mp4' }, body: buffer }), res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockUploadMedia).toHaveBeenCalled();
+  });
 });
 
 describe('conversationController - startConversation', () => {
