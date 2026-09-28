@@ -1,14 +1,14 @@
 import { Response } from 'express';
-import { statusSchema, listAssignableUsers, sendAgentAttachment } from '../conversationController';
+import { statusSchema, listAssignableUsers, sendAgentAttachment, startConversation } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
 import { recordOutboundMessage } from '../../services/conversationService';
-import { uploadWhatsAppMedia, sendWhatsAppMedia } from '../../../bot/services/whatsappService';
+import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage } from '../../../bot/services/whatsappService';
 
 jest.mock('../../../core/database/prisma', () => ({
   prisma: {
     user: { findMany: jest.fn() },
-    conversation: { findUnique: jest.fn(), update: jest.fn() },
-    client: { findUnique: jest.fn() }
+    conversation: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
+    client: { findUnique: jest.fn(), upsert: jest.fn() }
   }
 }));
 
@@ -18,17 +18,19 @@ jest.mock('../../services/conversationService', () => ({
 
 jest.mock('../../../bot/services/whatsappService', () => ({
   uploadWhatsAppMedia: jest.fn(),
-  sendWhatsAppMedia: jest.fn()
+  sendWhatsAppMedia: jest.fn(),
+  sendWhatsAppMessage: jest.fn()
 }));
 
 const mockPrisma = prisma as unknown as {
   user: { findMany: jest.Mock };
-  conversation: { findUnique: jest.Mock; update: jest.Mock };
-  client: { findUnique: jest.Mock };
+  conversation: { findUnique: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock };
+  client: { findUnique: jest.Mock; upsert: jest.Mock };
 };
 const mockRecordOutbound = recordOutboundMessage as jest.Mock;
 const mockUploadMedia = uploadWhatsAppMedia as jest.Mock;
 const mockSendMedia = sendWhatsAppMedia as jest.Mock;
+const mockSendWhatsApp = sendWhatsAppMessage as jest.Mock;
 
 describe('conversationController - statusSchema', () => {
   it('accepts a businessStatus-only update (panel dropdown)', () => {
@@ -170,5 +172,77 @@ describe('conversationController - sendAgentAttachment', () => {
       expect.objectContaining({ deliveryStatus: 'FAILED' })
     );
     expect(res.status).toHaveBeenCalledWith(502);
+  });
+});
+
+describe('conversationController - startConversation', () => {
+  const makeReq = (overrides: Record<string, unknown> = {}) => ({
+    user: { id: 'agent-1', role: 'AGENT' },
+    body: { phone: '573001112233', body: 'Hola, soy de Mudanzas Chico' },
+    ...overrides
+  }) as never;
+  const makeRes = () => {
+    const res = {
+      status: jest.fn(),
+      json: jest.fn()
+    };
+    res.status.mockReturnValue(res);
+    res.json.mockReturnValue(res);
+    return res as unknown as Response & { status: jest.Mock; json: jest.Mock };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.client.upsert.mockResolvedValue({ id: 'client-1', phone: '573001112233' } as never);
+    mockPrisma.conversation.findFirst.mockResolvedValue(null as never);
+    mockPrisma.conversation.create.mockResolvedValue({ id: 'conv-new', clientId: 'client-1', status: 'HUMAN_ACTIVE' } as never);
+    mockPrisma.conversation.update.mockResolvedValue({} as never);
+    mockSendWhatsApp.mockResolvedValue(true as never);
+    mockRecordOutbound.mockResolvedValue({ id: 'msg-1' } as never);
+  });
+
+  it('creates the conversation, sends the first message and records it', async () => {
+    const res = makeRes();
+    await startConversation(makeReq(), res);
+
+    expect(mockPrisma.client.upsert).toHaveBeenCalledWith({
+      where: { phone: '573001112233' },
+      update: {},
+      create: { phone: '573001112233' }
+    });
+    expect(mockPrisma.conversation.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        clientId: 'client-1',
+        status: 'HUMAN_ACTIVE',
+        assignedUserId: 'agent-1'
+      })
+    });
+    expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', 'Hola, soy de Mudanzas Chico');
+    expect(mockRecordOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv-new', senderType: 'AGENT', deliveryStatus: 'SENT' })
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('rejects an invalid phone (400)', async () => {
+    const res = makeRes();
+    await startConversation(makeReq({ body: { phone: 'abc', body: 'Hola' } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockSendWhatsApp).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 with the 24h-window detail when WhatsApp rejects the send', async () => {
+    mockSendWhatsApp.mockResolvedValue(false as never);
+    const res = makeRes();
+
+    await startConversation(makeReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.stringContaining('plantilla')
+      })
+    );
   });
 });

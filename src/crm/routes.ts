@@ -33,6 +33,7 @@ import {
   saveBusinessHourException,
   sendAgentAttachment,
   sendAgentMessage,
+  startConversation,
   streamCrmEvents,
   updateBusinessHours,
   updateConversationStatus,
@@ -56,6 +57,7 @@ crmRouter.get('/settings/credentials', requireCrmRole('ADMIN'), getApiCredential
 crmRouter.put('/settings/credentials', requireCrmRole('ADMIN'), updateApiCredentials);
 crmRouter.get('/leads', listLeads);
 crmRouter.get('/conversations', listConversations);
+crmRouter.post('/conversations/start', startConversation);
 crmRouter.get('/conversations/:id', getConversation);
 crmRouter.post('/conversations/:id/claim', claimConversation);
 crmRouter.post('/conversations/:id/bot', reactivateBot);

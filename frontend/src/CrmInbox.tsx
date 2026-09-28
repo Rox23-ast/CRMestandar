@@ -74,6 +74,11 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterSource, setFilterSource] = useState<string>('')
   const [filterIncludeFinal, setFilterIncludeFinal] = useState(false)
+  const [searchInput, setSearchInput] = useState('')
+  const [filterSearch, setFilterSearch] = useState('')
+  const [startOpen, setStartOpen] = useState(false)
+  const [newPhone, setNewPhone] = useState('')
+  const [newMessage, setNewMessage] = useState('')
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [assignMenuOpen, setAssignMenuOpen] = useState(false)
   const [botEnabled, setBotEnabled] = useState(true)
@@ -144,6 +149,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     const params = new URLSearchParams()
     if (filterStatus) params.set('businessStatus', filterStatus)
     if (filterSource) params.set('source', filterSource)
+    if (filterSearch) params.set('search', filterSearch)
     if (filterIncludeFinal) params.set('includeFinal', 'true')
     const response = await axios.get(`${API_URL}/api/crm/conversations?${params.toString()}`, { headers: authHeaders(token) })
     setConversations(response.data.data)
@@ -218,7 +224,13 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     const interval = setInterval(refresh, 30000)
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, filterStatus, filterSource, filterIncludeFinal, canAssign])
+  }, [token, filterStatus, filterSource, filterSearch, filterIncludeFinal, canAssign])
+
+  // Debounce del buscador para no disparar una petición por tecla.
+  useEffect(() => {
+    const handler = setTimeout(() => setFilterSearch(searchInput.trim()), 400)
+    return () => clearTimeout(handler)
+  }, [searchInput])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -272,6 +284,27 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       await Promise.all([loadConversation(selected.id), loadConversations()])
     } catch {
       setError('No fue posible asignar la conversación.')
+    }
+  }
+
+  const handleStartChat = async (event: FormEvent) => {
+    event.preventDefault()
+    const phone = newPhone.replace(/[^\d+]/g, '')
+    if (!phone || !newMessage.trim()) return
+    try {
+      const response = await axios.post(
+        `${API_URL}/api/crm/conversations/start`,
+        { phone, body: newMessage.trim() },
+        { headers: authHeaders(token) }
+      )
+      setNewPhone('')
+      setNewMessage('')
+      setStartOpen(false)
+      await loadConversations()
+      await loadConversation(response.data.conversation.id)
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setError(detail ? `No fue posible iniciar la conversación: ${detail}` : 'No fue posible iniciar la conversación.')
     }
   }
 
@@ -406,6 +439,12 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
           </div>
           {/* Filtros */}
           <div className="p-3 border-b border-neutral-gray bg-neutral-light/30 space-y-2">
+            <input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Buscar por número o nombre…"
+              className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+            />
             <div className="flex items-center space-x-2">
               <label className="flex items-center space-x-2 text-sm text-neutral-darkgray cursor-pointer">
                 <input
@@ -462,6 +501,38 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                 </button>
               )}
             </div>
+            {startOpen ? (
+              <form onSubmit={handleStartChat} className="space-y-2 pt-1">
+                <input
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  placeholder="Número (ej. 573001112233)"
+                  className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+                />
+                <input
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  placeholder="Primer mensaje…"
+                  className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+                />
+                <div className="flex gap-2">
+                  <button type="submit" className="flex-1 bg-primary text-white px-3 py-1.5 rounded-md text-sm">
+                    Iniciar chat
+                  </button>
+                  <button type="button" onClick={() => setStartOpen(false)} className="border border-neutral-gray text-neutral-dark px-3 py-1.5 rounded-md text-sm">
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setStartOpen(true)}
+                className="w-full border border-dashed border-secondary/50 text-secondary px-3 py-1.5 rounded-md text-sm hover:bg-secondary/10 transition-colors"
+              >
+                + Nuevo chat con otro número
+              </button>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto">
           {conversations.map((conversation) => {

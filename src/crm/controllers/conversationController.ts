@@ -20,10 +20,16 @@ const listQuerySchema = z.object({
   assignedUserId: z.string().uuid().optional(),
   businessStatus: z.string().optional(),
   source: z.enum(['ADS', 'ORGANIC']).optional(),
+  search: z.string().trim().min(1).max(100).optional(),
   includeFinal: z.coerce.boolean().optional()
 });
 
 const messageSchema = z.object({
+  body: z.string().trim().min(1).max(4096)
+});
+
+const startConversationSchema = z.object({
+  phone: z.string().trim().regex(/^\+?\d{7,20}$/, 'Phone must be digits with optional +'),
   body: z.string().trim().min(1).max(4096)
 });
 
@@ -105,7 +111,7 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
     return problem(res, 400, 'Invalid conversation filters');
   }
 
-  const { page, pageSize, status, priority, assignedUserId, businessStatus, source, includeFinal } = parsed.data;
+  const { page, pageSize, status, priority, assignedUserId, businessStatus, source, search, includeFinal } = parsed.data;
   const userFilter = canSeeAllConversations(req.user.role)
     ? {}
     : { assignedUserId: req.user.id };
@@ -115,7 +121,17 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
     ...(priority ? { priority } : {}),
     ...(assignedUserId ? { assignedUserId } : {}),
     ...(source === 'ADS' ? { source: 'ADS' } : {}),
-    ...(source === 'ORGANIC' ? { source: null } : {})
+    ...(source === 'ORGANIC' ? { source: null } : {}),
+    ...(search
+      ? {
+          client: {
+            OR: [
+              { phone: { contains: search } },
+              { name: { contains: search, mode: 'insensitive' } }
+            ]
+          }
+        }
+      : {})
   };
 
   // Excluir conversaciones cuyo estado de gestión sea final, a menos que se pida verlas
@@ -475,6 +491,56 @@ export const sendAgentAttachment = async (req: AuthenticatedRequest, res: Respon
 
   if (!sent) return problem(res, 502, 'WhatsApp media message could not be sent');
   return res.status(201).json(message);
+};
+
+/**
+ * POST /api/crm/conversations/start
+ * Inicia un chat saliente con un número nuevo: crea/obtiene el cliente y la
+ * conversación (HUMAN_ACTIVE, asignada al agente) y envía el primer mensaje.
+ */
+export const startConversation = async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return problem(res, 401, 'Authentication required');
+  const parsed = startConversationSchema.safeParse(req.body);
+  if (!parsed.success) return problem(res, 400, 'Outreach data is invalid');
+
+  const phone = parsed.data.phone;
+  const client = await prisma.client.upsert({
+    where: { phone },
+    update: {},
+    create: { phone }
+  });
+
+  let conversation = await prisma.conversation.findFirst({
+    where: { clientId: client.id, status: { in: ['NEW', 'BOT_ACTIVE', 'HUMAN_ACTIVE', 'WAITING_CUSTOMER'] } }
+  });
+  if (!conversation) {
+    conversation = await prisma.conversation.create({
+      data: { clientId: client.id, status: 'HUMAN_ACTIVE', assignedUserId: req.user.id }
+    });
+  } else if (conversation.status !== 'HUMAN_ACTIVE') {
+    conversation = await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { status: 'HUMAN_ACTIVE', assignedUserId: conversation.assignedUserId ?? req.user.id }
+    });
+  }
+
+  const sent = await sendWhatsAppMessage(phone, parsed.data.body);
+  const message = await recordOutboundMessage({
+    conversationId: conversation.id,
+    body: parsed.data.body,
+    senderType: 'AGENT',
+    deliveryStatus: sent ? 'SENT' : 'FAILED'
+  });
+
+  if (!sent) {
+    return problem(
+      res,
+      502,
+      'WhatsApp message could not be sent',
+      'Si el número nunca ha escrito al negocio, WhatsApp exige una plantilla aprobada (ventana de 24h).'
+    );
+  }
+  return res.status(201).json({ conversation, message });
 };
 
 export const listNotifications = async (req: AuthenticatedRequest, res: Response) => {
