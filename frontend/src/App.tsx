@@ -442,7 +442,13 @@ function App() {
     {/* Content Area */}
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
       {activePanel === 'crm' ? (
-        <CrmInbox token={token} userRole={crmUserRole} />
+        activeTab === 'leads' ? (
+          <div className="p-8 overflow-y-auto w-full mx-auto">
+            <Leads token={token} userRole={crmUserRole} />
+          </div>
+        ) : (
+          <CrmInbox token={token} userRole={crmUserRole} />
+        )
       ) : (
         <div className="p-8 max-w-4xl overflow-y-auto w-full mx-auto">
           {/* Toast Notification */}
@@ -638,11 +644,6 @@ function App() {
             {/* Tab 8: Statuses */}
             {activeTab === 'statuses' && (
               <StatusSettings token={token} />
-            )}
-
-            {/* Tab 9: Leads */}
-            {activeTab === 'leads' && (
-              <Leads token={token} userRole={crmUserRole} />
             )}
 
           </div>
