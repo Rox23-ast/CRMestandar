@@ -14,7 +14,7 @@ import { subscribeToCrmEvents } from '../services/eventStream';
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  pageSize: z.coerce.number().int().min(1).max(500).default(20),
   status: z.string().optional(),
   priority: z.string().optional(),
   assignedUserId: z.string().uuid().optional(),

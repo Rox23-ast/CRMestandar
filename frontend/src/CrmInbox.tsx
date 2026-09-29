@@ -256,7 +256,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     if (filterSearch) params.set('search', filterSearch)
     if (filterIncludeFinal) params.set('includeFinal', 'true')
     params.set('page', String(pageToLoad))
-    params.set('pageSize', '50')
+    params.set('pageSize', '500')
     const response = await axios.get(`${API_URL}/api/crm/conversations?${params.toString()}`, { headers: authHeaders(token) })
     setTotalConversations(response.data.pagination?.total ?? response.data.data.length)
     setUnread(response.data.unreadCount ?? 0)
