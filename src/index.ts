@@ -123,11 +123,32 @@ app.get(/^\/crm$/, (_req: Request, res: Response) => {
 });
 
 // Serve the Vite-built configuration panel under the /crm path.
-app.use('/crm', express.static(path.join(__dirname, '../public')));
+// Cache policy: los assets de Vite llevan hash en el nombre (inmutables);
+// index.html se sirve sin cache para que cada despliegue se refleje de
+// inmediato sin que el navegador siga referenciando hashes viejos.
+app.use(
+  '/crm',
+  express.static(path.join(__dirname, '../public'), {
+    index: false,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(`${path.sep}index.html`)) {
+        res.setHeader('Cache-Control', 'no-cache');
+      } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    }
+  })
+);
 
-// Fallback to index.html for SPA routing on /crm
-app.get(/^\/crm/, (req: Request, res: Response) => {
-  res.sendFile(path.join(__dirname, '../public/index.html'));
+// Fallback to index.html for SPA routing on /crm. Nunca para rutas con
+// extensión (assets): un archivo inexistente debe devolver 404, no el HTML
+// del panel (evita el error de MIME 'text/html' para estilos y scripts).
+app.get(/^\/crm(\/.*)?$/, (req: Request, res: Response, next) => {
+  if (path.extname(req.path)) return next();
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, '../public/index.html'), (err) => {
+    if (err) next(err);
+  });
 });
 
 // Health-check endpoint.
