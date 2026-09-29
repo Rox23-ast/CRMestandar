@@ -154,21 +154,58 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
     where.businessStatus = businessStatus;
   }
 
-  const [conversations, total] = await Promise.all([
+  const include = {
+    client: { select: { id: true, phone: true, name: true } },
+    assignedUser: { select: { id: true, name: true, role: true } }
+  };
+  const orderBy: any = [{ priority: 'asc' }, { lastMessageAt: 'desc' }];
+
+  // Conversaciones no leídas para este usuario: notificaciones sin readAt.
+  // La persistencia vive en Notification.readAt; así el "no leído" sobrevive
+  // a recargas y las conversaciones no leídas salen siempre al inicio.
+  const unreadRows = await prisma.notification.findMany({
+    where: {
+      OR: [{ userId: req.user.id }, { role: req.user.role }],
+      readAt: null,
+      conversationId: { not: null }
+    },
+    select: { conversationId: true }
+  });
+  const unreadIds = [...new Set(unreadRows.map((row) => row.conversationId as string))];
+  const unreadIdSet = new Set(unreadIds);
+
+  const unreadConversations = unreadIds.length > 0
+    ? await prisma.conversation.findMany({
+        where: { ...where, id: { in: unreadIds } },
+        include,
+        orderBy,
+        take: pageSize
+      })
+    : [];
+
+  const restWhere = unreadIds.length > 0 ? { ...where, id: { notIn: unreadIds } } : where;
+  const restSkip = Math.max(0, (page - 1) * pageSize - unreadConversations.length);
+  const [rest, total, unreadTotal] = await Promise.all([
     prisma.conversation.findMany({
-      where,
-      include: {
-        client: { select: { id: true, phone: true, name: true } },
-        assignedUser: { select: { id: true, name: true, role: true } }
-      },
-      orderBy: [{ priority: 'asc' }, { lastMessageAt: 'desc' }],
-      skip: (page - 1) * pageSize,
+      where: restWhere,
+      include,
+      orderBy,
+      skip: restSkip,
       take: pageSize
     }),
-    prisma.conversation.count({ where })
+    prisma.conversation.count({ where }),
+    unreadIds.length > 0
+      ? prisma.conversation.count({ where: { ...where, id: { in: unreadIds } } })
+      : Promise.resolve(0)
   ]);
 
-  return res.json({ data: conversations, pagination: { page, pageSize, total } });
+  const conversations = [...unreadConversations, ...rest];
+
+  return res.json({
+    data: conversations.map((conversation) => ({ ...conversation, unread: unreadIdSet.has(conversation.id) })),
+    unreadCount: unreadTotal,
+    pagination: { page, pageSize, total }
+  });
 };
 
 export const getConversation = async (req: AuthenticatedRequest, res: Response) => {
@@ -193,6 +230,17 @@ export const getConversation = async (req: AuthenticatedRequest, res: Response) 
   if (!canSeeAllConversations(req.user.role) && conversation.assignedUserId !== req.user.id && !canAccessQueue) {
     return problem(res, 403, 'Insufficient permissions');
   }
+
+  // Abrir la conversación la marca como leída para este usuario (persistido
+  // en Notification.readAt; es lo que usa listConversations para ordenar).
+  await prisma.notification.updateMany({
+    where: {
+      conversationId,
+      readAt: null,
+      OR: [{ userId: req.user.id }, { role: req.user.role }]
+    },
+    data: { readAt: new Date() }
+  });
 
   return res.json(conversation);
 };

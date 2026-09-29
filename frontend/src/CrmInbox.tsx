@@ -24,6 +24,7 @@ type Conversation = {
   assignedRole?: string | null
   client: { phone: string; name?: string | null }
   assignedUser?: { id: string; name: string; role: string } | null
+  unread?: boolean
   lastMessageAt: string
 }
 
@@ -113,7 +114,6 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [unread, setUnread] = useState(0)
-  const [unreadConversations, setUnreadConversations] = useState<Set<string>>(new Set())
   const [statusConfigs, setStatusConfigs] = useState<BusinessStatusConfig[]>([])
   const [assignableUsers, setAssignableUsers] = useState<{ id: string; name: string; role: string }[]>([])
   const [filterStatus, setFilterStatus] = useState<string>('')
@@ -259,6 +259,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     params.set('pageSize', '50')
     const response = await axios.get(`${API_URL}/api/crm/conversations?${params.toString()}`, { headers: authHeaders(token) })
     setTotalConversations(response.data.pagination?.total ?? response.data.data.length)
+    setUnread(response.data.unreadCount ?? 0)
     setConversationPage(pageToLoad)
     setConversations((current) => (append ? [...current, ...response.data.data] : response.data.data))
   }
@@ -278,12 +279,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const loadConversation = async (id: string) => {
     const response = await axios.get(`${API_URL}/api/crm/conversations/${id}`, { headers: authHeaders(token) })
     setSelected(response.data)
-    setUnreadConversations((current) => {
-      if (!current.has(id)) return current
-      const next = new Set(current)
-      next.delete(id)
-      return next
-    })
+    setConversations((current) => current.map((conversation) => conversation.id === id ? { ...conversation, unread: false } : conversation))
   }
 
   useEffect(() => {
@@ -315,15 +311,10 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
             if (done) break
             const chunk = decoder.decode(value)
             if (chunk.includes('notification.created')) {
-              setUnread((current) => current + 1)
               void loadConversations()
               const match = chunk.match(/"conversationId":"([^"]+)"/)
-              if (match?.[1]) {
-                if (match[1] === selectedIdRef.current) {
-                  void loadConversation(match[1]).catch(() => undefined)
-                } else {
-                  setUnreadConversations((current) => new Set(current).add(match[1]))
-                }
+              if (match?.[1] === selectedIdRef.current) {
+                void loadConversation(match[1]).catch(() => undefined)
               }
             }
           }
@@ -804,14 +795,14 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
             return (
               <button key={conversation.id} onClick={() => void loadConversation(conversation.id)} className={`w-full text-left p-4 border-b border-neutral-gray hover:bg-neutral-light ${selected?.id === conversation.id ? 'bg-secondary/20 border-l-4 border-l-accent-gold' : ''}`}>
                 <div className="flex justify-between gap-2">
-                  <span className={`truncate flex items-center gap-2 min-w-0 ${unreadConversations.has(conversation.id) ? 'font-bold text-primary' : ''}`}>
-                    {unreadConversations.has(conversation.id) && (
+                  <span className={`truncate flex items-center gap-2 min-w-0 ${conversation.unread ? 'font-bold text-primary' : ''}`}>
+                    {conversation.unread && (
                       <span className="w-2.5 h-2.5 bg-red-500 rounded-full flex-shrink-0" title="Mensajes sin leer" />
                     )}
                     <strong className="truncate">{conversation.client.name || conversation.client.phone}</strong>
                   </span>
                   <span className="text-[11px] text-neutral-darkgray flex items-center gap-1 flex-shrink-0">
-                    {unreadConversations.has(conversation.id) && (
+                    {conversation.unread && (
                       <span className="bg-red-500 text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full">No leído</span>
                     )}
                     {conversation.source === 'ADS' && (

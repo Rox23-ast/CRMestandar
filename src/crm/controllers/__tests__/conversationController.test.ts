@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { statusSchema, listAssignableUsers, sendAgentAttachment, startConversation, getMedia, updateConversationClient } from '../conversationController';
+import { statusSchema, listAssignableUsers, sendAgentAttachment, startConversation, getMedia, updateConversationClient, listConversations, getConversation } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
 import { recordOutboundMessage } from '../../services/conversationService';
 import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
@@ -7,8 +7,10 @@ import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, getWhatsAp
 jest.mock('../../../core/database/prisma', () => ({
   prisma: {
     user: { findMany: jest.fn() },
-    conversation: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
-    client: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() }
+    conversation: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), findMany: jest.fn(), count: jest.fn() },
+    client: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+    notification: { findMany: jest.fn(), updateMany: jest.fn() },
+    conversationStatusConfig: { findMany: jest.fn() }
   }
 }));
 
@@ -26,8 +28,10 @@ jest.mock('../../../bot/services/whatsappService', () => ({
 
 const mockPrisma = prisma as unknown as {
   user: { findMany: jest.Mock };
-  conversation: { findUnique: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock };
+  conversation: { findUnique: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock; findMany: jest.Mock; count: jest.Mock };
   client: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
+  notification: { findMany: jest.Mock; updateMany: jest.Mock };
+  conversationStatusConfig: { findMany: jest.Mock };
 };
 const mockRecordOutbound = recordOutboundMessage as jest.Mock;
 const mockUploadMedia = uploadWhatsAppMedia as jest.Mock;
@@ -318,6 +322,109 @@ describe('conversationController - updateConversationClient', () => {
 
     expect(res.json).toHaveBeenCalled();
     expect(mockPrisma.client.update).toHaveBeenCalled();
+  });
+});
+
+describe('conversationController - listConversations', () => {
+  const makeReq = (overrides: Record<string, unknown> = {}) => ({
+    user: { id: 'agent-1', role: 'AGENT' },
+    query: { page: '1', pageSize: '50', includeFinal: 'true' },
+    ...overrides
+  }) as never;
+  const makeRes = () => {
+    const res = {
+      status: jest.fn(),
+      json: jest.fn()
+    };
+    res.status.mockReturnValue(res);
+    res.json.mockReturnValue(res);
+    return res as unknown as Response & { status: jest.Mock; json: jest.Mock };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('returns unread conversations first with the unread flag', async () => {
+    mockPrisma.notification.findMany.mockResolvedValue([{ conversationId: 'conv-unread' }] as never);
+    mockPrisma.conversation.findMany
+      .mockResolvedValueOnce([{ id: 'conv-unread' }] as never)
+      .mockResolvedValueOnce([{ id: 'conv-read-1' }, { id: 'conv-read-2' }] as never);
+    mockPrisma.conversation.count.mockResolvedValue(3 as never);
+
+    const res = makeRes();
+    await listConversations(makeReq(), res);
+
+    expect(mockPrisma.conversation.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ where: expect.objectContaining({ id: { in: ['conv-unread'] } }), take: 50 })
+    );
+    expect(mockPrisma.conversation.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ where: expect.objectContaining({ id: { notIn: ['conv-unread'] } }), skip: 0, take: 50 })
+    );
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [
+          expect.objectContaining({ id: 'conv-unread', unread: true }),
+          expect.objectContaining({ id: 'conv-read-1', unread: false }),
+          expect.objectContaining({ id: 'conv-read-2', unread: false })
+        ],
+        unreadCount: expect.any(Number)
+      })
+    );
+  });
+
+  it('keeps the standard ordering when nothing is unread', async () => {
+    mockPrisma.notification.findMany.mockResolvedValue([] as never);
+    mockPrisma.conversation.findMany.mockResolvedValueOnce([{ id: 'conv-1' }] as never);
+    mockPrisma.conversation.count.mockResolvedValue(1 as never);
+
+    const res = makeRes();
+    await listConversations(makeReq(), res);
+
+    expect(mockPrisma.conversation.findMany).toHaveBeenCalledTimes(1);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ unreadCount: 0 })
+    );
+  });
+});
+
+describe('conversationController - getConversation', () => {
+  const CONVERSATION_ID = '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60';
+  const makeReq = (overrides: Record<string, unknown> = {}) => ({
+    user: { id: 'admin-1', role: 'ADMIN' },
+    params: { id: CONVERSATION_ID },
+    ...overrides
+  }) as never;
+  const makeRes = () => {
+    const res = {
+      status: jest.fn(),
+      json: jest.fn()
+    };
+    res.status.mockReturnValue(res);
+    res.json.mockReturnValue(res);
+    return res as unknown as Response & { status: jest.Mock; json: jest.Mock };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('marks the conversation notifications as read when opened', async () => {
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: CONVERSATION_ID, assignedUserId: null, assignedRole: 'MARKETING_DIRECTOR' } as never);
+    mockPrisma.notification.updateMany.mockResolvedValue({ count: 2 } as never);
+
+    const res = makeRes();
+    await getConversation(makeReq(), res);
+
+    expect(mockPrisma.notification.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ conversationId: CONVERSATION_ID, readAt: null }),
+        data: { readAt: expect.any(Date) }
+      })
+    );
+    expect(res.json).toHaveBeenCalled();
   });
 });
 
