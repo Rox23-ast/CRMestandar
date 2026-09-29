@@ -6,52 +6,33 @@ import {
   Filter,
   ChevronLeft,
   ChevronRight,
-  MessageSquare,
-  ExternalLink,
   Loader2,
   AlertCircle,
+  Download,
   X,
 } from 'lucide-react';
 
-interface LeadClient {
+interface LeadRow {
   id: string;
-  name: string | null;
-  phone: string;
-  createdAt: string;
-}
-
-interface LeadConversation {
-  id: string;
+  client: { id: string; name: string | null; phone: string; createdAt: string };
   status: string;
   businessStatus: string | null;
   priority: string;
+  source: string | null;
   lastMessageAt: string;
-  assignedUser: {
-    id: string;
-    name: string;
-    role: string;
-  } | null;
+  assignedUser: { id: string; name: string; role: string } | null;
 }
 
-interface LeadQuote {
-  id: string;
-  origin: string;
-  destination: string;
-  volume: number | null;
-  price: number | null;
-  status: string;
-  updatedAt: string;
-}
-
-interface Lead {
-  client: LeadClient;
-  conversation: LeadConversation | null;
-  quote: LeadQuote | null;
-  hasQuote: boolean;
+interface BusinessStatusConfig {
+  code: string;
+  label: string;
+  color: string;
+  isFinal: boolean;
+  isActive: boolean;
 }
 
 interface LeadsResponse {
-  data: Lead[];
+  data: LeadRow[];
   pagination: {
     total: number;
     page: number;
@@ -62,165 +43,321 @@ interface LeadsResponse {
 
 const API_URL = import.meta.env.VITE_API_URL ?? '';
 
-const BUSINESS_STATUS_COLORS: Record<string, string> = {
-  PENDIENTE_COTIZACION: 'bg-amber-100 text-amber-800 border border-amber-300',
-  EN_PROCESO: 'bg-blue-100 text-blue-800 border border-blue-300',
-  FINALIZADO: 'bg-green-100 text-green-800 border border-green-300',
-  SIN_CONVERSACION: 'bg-gray-100 text-gray-600 border border-gray-300',
+const STATUS_LABELS: Record<string, string> = {
+  NEW: 'Nueva',
+  BOT_ACTIVE: 'Bot activo',
+  HUMAN_ACTIVE: 'Atención humana',
+  WAITING_CUSTOMER: 'Esperando cliente',
+  RESOLVED: 'Resuelta',
+  CLOSED: 'Cerrada',
 };
 
-const QUOTE_STATUS_COLORS: Record<string, string> = {
-  PENDING: 'bg-yellow-100 text-yellow-800 border border-yellow-300',
-  ACCEPTED: 'bg-green-100 text-green-800 border border-green-300',
-  REJECTED: 'bg-red-100 text-red-800 border border-red-300',
+const PRIORITY_LABELS: Record<string, string> = {
+  URGENT: 'Urgente',
+  HIGH: 'Alta',
+  NORMAL: 'Normal',
+  LOW: 'Baja',
 };
 
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'ahora';
-  if (diffMin < 60) return `${diffMin}min`;
-  const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) return `${diffHours}h`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d`;
-  return date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
+const PRIORITY_COLORS: Record<string, string> = {
+  URGENT: 'bg-red-100 text-red-800 border border-red-300',
+  HIGH: 'bg-orange-100 text-orange-800 border border-orange-300',
+  NORMAL: 'bg-blue-100 text-blue-800 border border-blue-300',
+  LOW: 'bg-gray-100 text-gray-600 border border-gray-300',
+};
+
+function formatDateTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleString('es-CO', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
-export default function Leads({ token }: { token: string }) {
-  const [leads, setLeads] = useState<Lead[]>([]);
+export default function Leads({ token, userRole }: { token: string; userRole: string }) {
+  const [leads, setLeads] = useState<LeadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [businessStatus, setBusinessStatus] = useState('');
-  const [hasQuoteFilter, setHasQuoteFilter] = useState<boolean | undefined>(undefined);
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [conversationStatus, setConversationStatus] = useState('');
+  const [priority, setPriority] = useState('');
+  const [assignedUserId, setAssignedUserId] = useState('');
+  const [source, setSource] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [includeFinal, setIncludeFinal] = useState(false);
+  const [statusConfigs, setStatusConfigs] = useState<BusinessStatusConfig[]>([]);
+  const [assignableUsers, setAssignableUsers] = useState<{ id: string; name: string; role: string }[]>([]);
+  const [exporting, setExporting] = useState(false);
+
+  const canAssign = userRole === 'ADMIN' || userRole === 'MARKETING_DIRECTOR';
 
   const authHeaders = () => ({ Authorization: `Bearer ${token}` });
+
+  useEffect(() => {
+    void axios
+      .get(`${API_URL}/api/crm/settings/statuses`, { headers: authHeaders() })
+      .then((response) => setStatusConfigs(response.data))
+      .catch(() => undefined);
+    if (canAssign) {
+      void axios
+        .get(`${API_URL}/api/crm/assignable-users`, { headers: authHeaders() })
+        .then((response) => setAssignableUsers(response.data))
+        .catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, canAssign]);
+
+  const buildParams = useCallback(() => {
+    const params: Record<string, string | number | boolean> = { page, pageSize: 100 };
+    if (search) params.search = search;
+    if (businessStatus) params.businessStatus = businessStatus;
+    if (conversationStatus) params.conversationStatus = conversationStatus;
+    if (priority) params.priority = priority;
+    if (assignedUserId) params.assignedUserId = assignedUserId;
+    if (source) params.source = source;
+    if (dateFrom) params.dateFrom = dateFrom;
+    if (dateTo) params.dateTo = dateTo;
+    if (includeFinal) params.includeFinal = true;
+    return params;
+  }, [page, search, businessStatus, conversationStatus, priority, assignedUserId, source, dateFrom, dateTo, includeFinal]);
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const params: Record<string, string | number | boolean> = { page, pageSize: 20 };
-      if (search) params.search = search;
-      if (businessStatus) params.businessStatus = businessStatus;
-      if (hasQuoteFilter !== undefined) params.hasQuote = hasQuoteFilter;
-
       const response = await axios.get<LeadsResponse>(`${API_URL}/api/crm/leads`, {
         headers: authHeaders(),
-        params,
+        params: buildParams(),
       });
 
       setLeads(response.data.data);
       setTotalPages(response.data.pagination.totalPages);
       setTotal(response.data.pagination.total);
-      setPage(response.data.pagination.page);
     } catch (err) {
       console.error('Error fetching leads:', err);
-      setError('Error al cargar leads');
+      setError('Error al cargar los leads.');
     } finally {
       setLoading(false);
     }
-  }, [page, search, businessStatus, hasQuoteFilter, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buildParams]);
 
   useEffect(() => {
-    fetchLeads();
+    void fetchLeads();
   }, [fetchLeads]);
 
-  const handleSearchChange = (value: string) => {
-    setSearch(value);
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 400);
+    return () => clearTimeout(handler);
+  }, [searchInput]);
+
+  const resetFilters = () => {
+    setSearchInput('');
+    setSearch('');
+    setBusinessStatus('');
+    setConversationStatus('');
+    setPriority('');
+    setAssignedUserId('');
+    setSource('');
+    setDateFrom('');
+    setDateTo('');
+    setIncludeFinal(false);
     setPage(1);
   };
 
-  const handleStatusFilter = (value: string) => {
-    setBusinessStatus(value);
-    setPage(1);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const params: Record<string, string | number | boolean> = { ...buildParams() };
+      delete params.page;
+      delete params.pageSize;
+      const response = await axios.get(`${API_URL}/api/crm/leads/export`, {
+        headers: authHeaders(),
+        params,
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('No fue posible exportar los leads.');
+    } finally {
+      setExporting(false);
+    }
   };
 
-  const handleHasQuoteFilter = (value: boolean | undefined) => {
-    setHasQuoteFilter(value);
-    setPage(1);
+  const businessStatusMeta = (code: string | null) => {
+    if (!code) return { label: 'Sin gestión', color: '#94a3b8' };
+    const config = statusConfigs.find((s) => s.code === code);
+    return config ? { label: config.label, color: config.color } : { label: code.replace(/_/g, ' '), color: '#94a3b8' };
   };
+
+  const activeFilterCount = [
+    search,
+    businessStatus,
+    conversationStatus,
+    priority,
+    assignedUserId,
+    source,
+    dateFrom,
+    dateTo,
+    includeFinal,
+  ].filter(Boolean).length;
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center space-x-3 border-b border-neutral-gray pb-4">
-        <Users className="w-6 h-6 text-secondary" />
-        <div>
-          <h3 className="text-xl font-cormorant text-primary">Leads</h3>
-          <p className="text-sm text-neutral-gray mt-1">
-            {total} lead{total !== 1 ? 's' : ''} en el sistema
-          </p>
+      <div className="flex items-center justify-between border-b border-neutral-gray pb-4">
+        <div className="flex items-center space-x-3">
+          <Users className="w-6 h-6 text-secondary" />
+          <div>
+            <h3 className="text-xl font-cormorant text-primary">Leads</h3>
+            <p className="text-sm text-neutral-gray mt-1">
+              {total} conversación{total !== 1 ? 'es' : ''} en el sistema
+            </p>
+          </div>
         </div>
+        <button
+          onClick={() => void handleExport()}
+          disabled={exporting}
+          className="flex items-center space-x-2 bg-primary text-white px-4 py-2 rounded-md text-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
+        >
+          {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          <span>{exporting ? 'Exportando…' : 'Exportar CSV'}</span>
+        </button>
       </div>
 
       {/* Filtros */}
       <div className="bg-white rounded-lg border border-neutral-gray p-4 space-y-4">
-        <div className="flex items-center space-x-2 text-sm text-neutral-gray">
-          <Filter className="w-4 h-4" />
-          <span className="font-medium">Filtros</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2 text-sm text-neutral-gray">
+            <Filter className="w-4 h-4" />
+            <span className="font-medium">Filtros</span>
+            {activeFilterCount > 0 && (
+              <span className="bg-secondary/10 text-secondary text-xs px-2 py-0.5 rounded-full">
+                {activeFilterCount} activo{activeFilterCount !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          {activeFilterCount > 0 && (
+            <button
+              onClick={resetFilters}
+              className="flex items-center space-x-1 text-xs text-neutral-darkgray hover:text-red-500 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Limpiar filtros</span>
+            </button>
+          )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-gray" />
             <input
               type="text"
-              placeholder="Buscar por nombre o teléfono..."
-              value={search}
-              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Buscar por nombre o teléfono…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-neutral-gray rounded-md text-sm focus:outline-none focus:border-secondary"
             />
           </div>
 
           <select
             value={businessStatus}
-            onChange={(e) => handleStatusFilter(e.target.value)}
-            className="w-full px-4 py-2 border border-neutral-gray rounded-md text-sm focus:outline-none focus:border-secondary"
+            onChange={(e) => { setBusinessStatus(e.target.value); setPage(1); }}
+            className="w-full px-3 py-2 border border-neutral-gray rounded-md text-sm focus:outline-none focus:border-secondary"
           >
-            <option value="">Todos los estados</option>
-            <option value="PENDIENTE_COTIZACION">Pendiente cotización</option>
-            <option value="EN_PROCESO">En proceso</option>
-            <option value="FINALIZADO">Finalizado</option>
+            <option value="">Todos los estados de gestión</option>
+            {statusConfigs
+              .filter((s) => s.isActive)
+              .map((s) => (
+                <option key={s.code} value={s.code}>{s.label}</option>
+              ))}
           </select>
 
-          <div className="flex space-x-2">
-            <button
-              onClick={() => handleHasQuoteFilter(undefined)}
-              className={`px-3 py-2 rounded-md text-sm border transition-colors ${
-                hasQuoteFilter === undefined
-                  ? 'bg-primary text-white border-primary'
-                  : 'bg-white text-neutral-gray border-neutral-gray hover:bg-neutral-gray/10'
-              }`}
+          <select
+            value={conversationStatus}
+            onChange={(e) => { setConversationStatus(e.target.value); setPage(1); }}
+            className="w-full px-3 py-2 border border-neutral-gray rounded-md text-sm focus:outline-none focus:border-secondary"
+          >
+            <option value="">Todos los estados de conversación</option>
+            {Object.entries(STATUS_LABELS).map(([code, label]) => (
+              <option key={code} value={code}>{label}</option>
+            ))}
+          </select>
+
+          <select
+            value={priority}
+            onChange={(e) => { setPriority(e.target.value); setPage(1); }}
+            className="w-full px-3 py-2 border border-neutral-gray rounded-md text-sm focus:outline-none focus:border-secondary"
+          >
+            <option value="">Todas las prioridades</option>
+            {Object.entries(PRIORITY_LABELS).map(([code, label]) => (
+              <option key={code} value={code}>{label}</option>
+            ))}
+          </select>
+
+          {canAssign && (
+            <select
+              value={assignedUserId}
+              onChange={(e) => { setAssignedUserId(e.target.value); setPage(1); }}
+              className="w-full px-3 py-2 border border-neutral-gray rounded-md text-sm focus:outline-none focus:border-secondary"
             >
-              Todos
-            </button>
-            <button
-              onClick={() => handleHasQuoteFilter(true)}
-              className={`px-3 py-2 rounded-md text-sm border transition-colors ${
-                hasQuoteFilter === true
-                  ? 'bg-green-600 text-white border-green-600'
-                  : 'bg-white text-neutral-gray border-neutral-gray hover:bg-neutral-gray/10'
-              }`}
-            >
-              Con cotización
-            </button>
-            <button
-              onClick={() => handleHasQuoteFilter(false)}
-              className={`px-3 py-2 rounded-md text-sm border transition-colors ${
-                hasQuoteFilter === false
-                  ? 'bg-amber-600 text-white border-amber-600'
-                  : 'bg-white text-neutral-gray border-neutral-gray hover:bg-neutral-gray/10'
-              }`}
-            >
-              Sin cotización
-            </button>
+              <option value="">Todos los comerciales</option>
+              {assignableUsers.map((user) => (
+                <option key={user.id} value={user.id}>{user.name}</option>
+              ))}
+            </select>
+          )}
+
+          <select
+            value={source}
+            onChange={(e) => { setSource(e.target.value); setPage(1); }}
+            className="w-full px-3 py-2 border border-neutral-gray rounded-md text-sm focus:outline-none focus:border-secondary"
+          >
+            <option value="">Todos los orígenes</option>
+            <option value="ADS">Pauta (Meta Ads)</option>
+            <option value="ORGANIC">Orgánico</option>
+          </select>
+
+          <div className="flex items-center space-x-2">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+              className="flex-1 px-3 py-2 border border-neutral-gray rounded-md text-sm focus:outline-none focus:border-secondary"
+            />
+            <span className="text-neutral-gray text-sm">a</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+              className="flex-1 px-3 py-2 border border-neutral-gray rounded-md text-sm focus:outline-none focus:border-secondary"
+            />
           </div>
+
+          <label className="flex items-center space-x-2 text-sm text-neutral-darkgray cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeFinal}
+              onChange={(e) => { setIncludeFinal(e.target.checked); setPage(1); }}
+              className="w-4 h-4 text-secondary border-neutral-gray rounded focus:ring-secondary/50"
+            />
+            <span>Incluir finalizadas</span>
+          </label>
         </div>
       </div>
 
@@ -233,104 +370,83 @@ export default function Leads({ token }: { token: string }) {
       )}
 
       {/* Tabla */}
-      <div className="bg-white rounded-lg border border-neutral-gray overflow-hidden">
+      <div className="bg-white rounded-lg border border-neutral-gray overflow-x-auto">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-6 h-6 animate-spin text-secondary" />
-            <span className="ml-2 text-neutral-gray">Cargando leads...</span>
+            <span className="ml-2 text-neutral-gray">Cargando leads…</span>
           </div>
         ) : leads.length === 0 ? (
           <div className="text-center py-12 text-neutral-gray">
-            No se encontraron leads con los filtros seleccionados.
+            No se encontraron conversaciones con los filtros seleccionados.
           </div>
         ) : (
-          <table className="w-full">
+          <table className="w-full min-w-[900px]">
             <thead className="bg-neutral-gray/10 border-b border-neutral-gray">
               <tr>
+                <th className="text-left px-4 py-3 text-sm font-medium text-primary whitespace-nowrap">Último mensaje</th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-primary">Cliente</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-primary">Estado gestión</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-primary">Cotización</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-primary">Asignado</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-primary">Última actividad</th>
-                <th className="text-right px-4 py-3 text-sm font-medium text-primary">Acciones</th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-primary">Estado</th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-primary">Gestión</th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-primary">Prioridad</th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-primary">Origen</th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-primary">Comercial</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-gray">
-              {leads.map((lead) => (
-                <tr key={lead.client.id} className="hover:bg-neutral-gray/5 transition-colors">
-                  <td className="px-4 py-3">
-                    <div>
+              {leads.map((lead) => {
+                const bizInfo = businessStatusMeta(lead.businessStatus);
+                return (
+                  <tr key={lead.id} className="hover:bg-neutral-gray/5 transition-colors">
+                    <td className="px-4 py-3 text-sm text-neutral-gray whitespace-nowrap">
+                      {formatDateTime(lead.lastMessageAt)}
+                    </td>
+                    <td className="px-4 py-3">
                       <p className="text-sm font-medium text-primary">
                         {lead.client.name || 'Sin nombre'}
                       </p>
                       <p className="text-xs text-neutral-gray">{lead.client.phone}</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${
-                        BUSINESS_STATUS_COLORS[lead.conversation?.businessStatus || 'SIN_CONVERSACION'] ||
-                        BUSINESS_STATUS_COLORS.SIN_CONVERSACION
-                      }`}
-                    >
-                      {(lead.conversation?.businessStatus || 'SIN_CONVERSACION').replace(/_/g, ' ')}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {lead.hasQuote ? (
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-sm text-neutral-dark">{STATUS_LABELS[lead.status] || lead.status}</span>
+                    </td>
+                    <td className="px-4 py-3">
                       <span
-                        className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${
-                          lead.quote ? QUOTE_STATUS_COLORS[lead.quote.status] || '' : ''
-                        }`}
+                        className="inline-block px-2.5 py-1 rounded-full text-xs font-medium text-white"
+                        style={{ backgroundColor: bizInfo.color }}
                       >
-                        {lead.quote?.status === 'PENDING' && 'Pendiente'}
-                        {lead.quote?.status === 'ACCEPTED' && 'Aceptada'}
-                        {lead.quote?.status === 'REJECTED' && 'Rechazada'}
+                        {bizInfo.label}
                       </span>
-                    ) : (
-                      <span className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200">
-                        Sin cotización
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${PRIORITY_COLORS[lead.priority] || PRIORITY_COLORS.LOW}`}>
+                        {PRIORITY_LABELS[lead.priority] || lead.priority}
                       </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {lead.conversation?.assignedUser ? (
-                      <div className="text-sm">
-                        <p className="text-primary">{lead.conversation.assignedUser.name}</p>
-                        <p className="text-xs text-neutral-gray">
-                          {lead.conversation.assignedUser.role === 'MARKETING_DIRECTOR'
-                            ? 'Directora'
-                            : 'Comercial'}
-                        </p>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-neutral-gray italic">Sin asignar</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {lead.conversation?.lastMessageAt ? (
-                      <span className="text-sm text-neutral-gray">
-                        {formatRelativeTime(lead.conversation.lastMessageAt)}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-neutral-gray italic">Sin actividad</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end space-x-2">
-                      {lead.conversation && (
-                        <button
-                          onClick={() => setSelectedLead(lead)}
-                          className="p-1.5 rounded-md text-neutral-gray hover:bg-primary/10 hover:text-primary transition-colors"
-                          title="Ver detalle"
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                        </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      {lead.source === 'ADS' ? (
+                        <span className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-300">
+                          Pauta
+                        </span>
+                      ) : (
+                        <span className="text-sm text-neutral-gray">Orgánico</span>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-4 py-3">
+                      {lead.assignedUser ? (
+                        <div className="text-sm">
+                          <p className="text-primary">{lead.assignedUser.name}</p>
+                          <p className="text-xs text-neutral-gray">
+                            {lead.assignedUser.role === 'MARKETING_DIRECTOR' ? 'Directora' : 'Comercial'}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-neutral-gray italic">Sin asignar</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -340,7 +456,7 @@ export default function Leads({ token }: { token: string }) {
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-neutral-gray">
-            Página {page} de {totalPages}
+            Página {page} de {totalPages} · {total} resultados
           </p>
           <div className="flex space-x-2">
             <button
@@ -357,116 +473,6 @@ export default function Leads({ token }: { token: string }) {
             >
               <ChevronRight className="w-4 h-4" />
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de detalle */}
-      {selectedLead && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-4 border-b border-neutral-gray">
-              <div className="flex items-center space-x-2">
-                <MessageSquare className="w-5 h-5 text-secondary" />
-                <h4 className="font-cormorant text-lg text-primary">Detalle del Lead</h4>
-              </div>
-              <button
-                onClick={() => setSelectedLead(null)}
-                className="p-1 rounded-md hover:bg-neutral-gray/10"
-              >
-                <X className="w-5 h-5 text-neutral-gray" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-4">
-              {/* Cliente */}
-              <div>
-                <h5 className="text-sm font-medium text-primary mb-2">Cliente</h5>
-                <div className="bg-neutral-gray/5 rounded-lg p-3 space-y-1">
-                  <p className="text-sm">
-                    <span className="text-neutral-gray">Nombre:</span>{' '}
-                    {selectedLead.client.name || 'Sin nombre'}
-                  </p>
-                  <p className="text-sm">
-                    <span className="text-neutral-gray">Teléfono:</span>{' '}
-                    {selectedLead.client.phone}
-                  </p>
-                  <p className="text-sm">
-                    <span className="text-neutral-gray">Creado:</span>{' '}
-                    {new Date(selectedLead.client.createdAt).toLocaleDateString('es-AR')}
-                  </p>
-                </div>
-              </div>
-
-              {/* Conversación */}
-              {selectedLead.conversation && (
-                <div>
-                  <h5 className="text-sm font-medium text-primary mb-2">Conversación</h5>
-                  <div className="bg-neutral-gray/5 rounded-lg p-3 space-y-1">
-                    <p className="text-sm">
-                      <span className="text-neutral-gray">Estado:</span>{' '}
-                      {selectedLead.conversation.status}
-                    </p>
-                    <p className="text-sm">
-                      <span className="text-neutral-gray">Gestión:</span>{' '}
-                      {selectedLead.conversation.businessStatus?.replace(/_/g, ' ') || 'N/A'}
-                    </p>
-                    <p className="text-sm">
-                      <span className="text-neutral-gray">Prioridad:</span>{' '}
-                      {selectedLead.conversation.priority}
-                    </p>
-                    <p className="text-sm">
-                      <span className="text-neutral-gray">Asignado a:</span>{' '}
-                      {selectedLead.conversation.assignedUser?.name || 'Sin asignar'}
-                    </p>
-                    <p className="text-sm">
-                      <span className="text-neutral-gray">Último mensaje:</span>{' '}
-                      {formatRelativeTime(selectedLead.conversation.lastMessageAt)}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Cotización */}
-              {selectedLead.quote && (
-                <div>
-                  <h5 className="text-sm font-medium text-primary mb-2">Cotización</h5>
-                  <div className="bg-neutral-gray/5 rounded-lg p-3 space-y-1">
-                    <p className="text-sm">
-                      <span className="text-neutral-gray">Origen:</span>{' '}
-                      {selectedLead.quote.origin}
-                    </p>
-                    <p className="text-sm">
-                      <span className="text-neutral-gray">Destino:</span>{' '}
-                      {selectedLead.quote.destination}
-                    </p>
-                    {selectedLead.quote.volume && (
-                      <p className="text-sm">
-                        <span className="text-neutral-gray">Volumen:</span>{' '}
-                        {selectedLead.quote.volume} m³
-                      </p>
-                    )}
-                    {selectedLead.quote.price && (
-                      <p className="text-sm">
-                        <span className="text-neutral-gray">Precio:</span>{' '}
-                        ${selectedLead.quote.price.toLocaleString('es-AR')}
-                      </p>
-                    )}
-                    <p className="text-sm">
-                      <span className="text-neutral-gray">Estado:</span>{' '}
-                      {selectedLead.quote.status}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {!selectedLead.hasQuote && (
-                <div>
-                  <h5 className="text-sm font-medium text-primary mb-2">Cotización</h5>
-                  <p className="text-sm text-neutral-gray italic">No tiene cotización asociada</p>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}

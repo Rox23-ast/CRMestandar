@@ -642,7 +642,7 @@ function App() {
 
             {/* Tab 9: Leads */}
             {activeTab === 'leads' && (
-              <Leads token={token} />
+              <Leads token={token} userRole={crmUserRole} />
             )}
 
           </div>

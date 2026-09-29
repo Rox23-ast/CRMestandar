@@ -1,20 +1,26 @@
 import { prisma } from '../../../core/database/prisma';
-import { listLeads, LeadQuery } from '../leadService';
+import { listLeads, exportLeadsCsv, LeadQuery } from '../leadService';
 import { AuthenticatedRequest } from '../../../core/auth/authMiddleware';
 
 jest.mock('../../../core/database/prisma', () => ({
   prisma: {
-    client: {
+    conversation: {
       findMany: jest.fn(),
       count: jest.fn(),
+    },
+    conversationStatusConfig: {
+      findMany: jest.fn(),
     },
   },
 }));
 
 const mockPrisma = prisma as unknown as {
-  client: {
+  conversation: {
     findMany: jest.Mock;
     count: jest.Mock;
+  };
+  conversationStatusConfig: {
+    findMany: jest.Mock;
   };
 };
 
@@ -30,196 +36,170 @@ const agentUser: AuthenticatedRequest['user'] = {
   name: 'Agent',
 };
 
-const baseClient = {
-  id: 'client-1',
-  name: 'Juan Pérez',
-  phone: '+5491155551234',
-  createdAt: new Date('2026-09-01'),
-  conversations: [
-    {
-      id: 'conv-1',
-      status: 'ACTIVE',
-      businessStatus: 'PENDIENTE_COTIZACION',
-      priority: 'MEDIUM',
-      lastMessageAt: new Date('2026-09-20'),
-      assignedUser: { id: 'agent-1', name: 'Agent', role: 'AGENT' },
-    },
-  ],
-  quotes: [
-    {
-      id: 'quote-1',
-      origin: 'Buenos Aires',
-      destination: 'Córdoba',
-      volume: 20,
-      price: 150000,
-      status: 'PENDING',
-      updatedAt: new Date('2026-09-19'),
-    },
-  ],
+const baseConversation = {
+  id: 'conv-1',
+  status: 'HUMAN_ACTIVE',
+  businessStatus: 'PENDIENTE_COTIZACION',
+  priority: 'HIGH',
+  source: 'ADS',
+  lastMessageAt: new Date('2026-09-20T15:30:00Z'),
+  createdAt: new Date('2026-09-01T10:00:00Z'),
+  client: {
+    id: 'client-1',
+    name: 'Juan Pérez',
+    phone: '+5491155551234',
+    createdAt: new Date('2026-09-01T10:00:00Z'),
+  },
+  assignedUser: { id: 'agent-1', name: 'Agent', role: 'AGENT' },
 };
+
+const FINAL_STATUS = [{ code: 'FINALIZADO', isFinal: true, isActive: true }];
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockPrisma.conversationStatusConfig.findMany.mockResolvedValue(FINAL_STATUS as never);
 });
 
 describe('leadService', () => {
   describe('listLeads', () => {
-    it('returns paginated leads for admin', async () => {
-      mockPrisma.client.findMany.mockResolvedValue([baseClient]);
-      mockPrisma.client.count.mockResolvedValue(1);
+    it('returns conversation rows with client and assigned user for admin', async () => {
+      mockPrisma.conversation.findMany.mockResolvedValue([baseConversation] as never);
+      mockPrisma.conversation.count.mockResolvedValue(1 as never);
 
       const result = await listLeads({ page: 1, pageSize: 20 }, adminUser);
 
-      expect(result.data).toHaveLength(1);
       expect(result.total).toBe(1);
-      expect(result.page).toBe(1);
+      expect(result.totalPages).toBe(1);
       expect(result.data[0].client.name).toBe('Juan Pérez');
-      expect(result.data[0].hasQuote).toBe(true);
-      expect(result.data[0].quote?.origin).toBe('Buenos Aires');
+      expect(result.data[0].client.phone).toBe('+5491155551234');
+      expect(result.data[0].status).toBe('HUMAN_ACTIVE');
+      expect(result.data[0].businessStatus).toBe('PENDIENTE_COTIZACION');
+      expect(result.data[0].assignedUser?.name).toBe('Agent');
     });
 
-    it('filters by businessStatus', async () => {
-      mockPrisma.client.findMany.mockResolvedValue([]);
-      mockPrisma.client.count.mockResolvedValue(0);
+    it('excludes final business statuses by default', async () => {
+      mockPrisma.conversation.findMany.mockResolvedValue([] as never);
+      mockPrisma.conversation.count.mockResolvedValue(0 as never);
 
-      await listLeads({ page: 1, pageSize: 20, businessStatus: 'PENDIENTE_COTIZACION' }, adminUser);
+      await listLeads({ page: 1, pageSize: 20 }, adminUser);
 
-      expect(mockPrisma.client.findMany).toHaveBeenCalledWith(
+      expect(mockPrisma.conversation.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            conversations: { some: { businessStatus: 'PENDIENTE_COTIZACION' } },
+            businessStatus: { notIn: ['FINALIZADO'], not: null },
           }),
         })
       );
     });
 
-    it('filters by hasQuote=true', async () => {
-      mockPrisma.client.findMany.mockResolvedValue([]);
-      mockPrisma.client.count.mockResolvedValue(0);
+    it('includes final conversations when includeFinal is set', async () => {
+      mockPrisma.conversation.findMany.mockResolvedValue([] as never);
+      mockPrisma.conversation.count.mockResolvedValue(0 as never);
 
-      await listLeads({ page: 1, pageSize: 20, hasQuote: true }, adminUser);
+      await listLeads({ page: 1, pageSize: 20, includeFinal: true }, adminUser);
 
-      expect(mockPrisma.client.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            quotes: { some: {} },
-          }),
-        })
-      );
+      const call = mockPrisma.conversation.findMany.mock.calls[0][0];
+      expect(call.where.businessStatus).toBeUndefined();
     });
 
-    it('filters by hasQuote=false', async () => {
-      mockPrisma.client.findMany.mockResolvedValue([]);
-      mockPrisma.client.count.mockResolvedValue(0);
+    it('filters by businessStatus, conversationStatus, priority, source and date range', async () => {
+      mockPrisma.conversation.findMany.mockResolvedValue([] as never);
+      mockPrisma.conversation.count.mockResolvedValue(0 as never);
 
-      await listLeads({ page: 1, pageSize: 20, hasQuote: false }, adminUser);
-
-      expect(mockPrisma.client.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            quotes: { none: {} },
-          }),
-        })
+      await listLeads(
+        {
+          page: 1,
+          pageSize: 20,
+          businessStatus: 'EN_PROCESO',
+          conversationStatus: 'HUMAN_ACTIVE',
+          priority: 'HIGH',
+          source: 'ADS',
+          dateFrom: '2026-09-01',
+          dateTo: '2026-09-30',
+        },
+        adminUser
       );
+
+      const call = mockPrisma.conversation.findMany.mock.calls[0][0];
+      expect(call.where.businessStatus).toBe('EN_PROCESO');
+      expect(call.where.status).toBe('HUMAN_ACTIVE');
+      expect(call.where.priority).toBe('HIGH');
+      expect(call.where.source).toBe('ADS');
+      expect(call.where.lastMessageAt.gte).toBeInstanceOf(Date);
+      expect(call.where.lastMessageAt.lte).toBeInstanceOf(Date);
     });
 
-    it('searches by name or phone', async () => {
-      mockPrisma.client.findMany.mockResolvedValue([]);
-      mockPrisma.client.count.mockResolvedValue(0);
+    it('matches ORGANIC source against null', async () => {
+      mockPrisma.conversation.findMany.mockResolvedValue([] as never);
+      mockPrisma.conversation.count.mockResolvedValue(0 as never);
+
+      await listLeads({ page: 1, pageSize: 20, source: 'ORGANIC' }, adminUser);
+
+      const call = mockPrisma.conversation.findMany.mock.calls[0][0];
+      expect(call.where.source).toBeNull();
+    });
+
+    it('searches by client name or phone', async () => {
+      mockPrisma.conversation.findMany.mockResolvedValue([] as never);
+      mockPrisma.conversation.count.mockResolvedValue(0 as never);
 
       await listLeads({ page: 1, pageSize: 20, search: 'Juan' }, adminUser);
 
-      expect(mockPrisma.client.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            OR: [
-              { name: { contains: 'Juan' } },
-              { phone: { contains: 'Juan' } },
-            ],
-          }),
-        })
-      );
-    });
-
-    it('restricts agent to assigned conversations only', async () => {
-      mockPrisma.client.findMany.mockResolvedValue([]);
-      mockPrisma.client.count.mockResolvedValue(0);
-
-      await listLeads({ page: 1, pageSize: 20 }, agentUser);
-
-      expect(mockPrisma.client.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          include: expect.objectContaining({
-            conversations: expect.objectContaining({
-              where: expect.objectContaining({
-                assignedUserId: 'agent-1',
-              }),
-            }),
-          }),
-        })
-      );
-    });
-
-    it('shows agents their assigned conversations plus web-born leads', async () => {
-      mockPrisma.client.findMany.mockResolvedValue([]);
-      mockPrisma.client.count.mockResolvedValue(0);
-
-      await listLeads({ page: 1, pageSize: 20 }, agentUser);
-
-      const findManyCall = mockPrisma.client.findMany.mock.calls[0][0];
-      expect(findManyCall.where.OR).toEqual([
-        {
-          conversations: {
-            some: expect.objectContaining({
-              assignedUserId: 'agent-1',
-              businessStatus: { notIn: ['FINALIZADO'], not: null },
-            }),
-          },
-        },
-        { quotes: { some: { source: 'WEB' } } },
-      ]);
-      const countCall = mockPrisma.client.count.mock.calls[0][0];
-      expect(countCall.where.OR).toEqual(expect.arrayContaining([{ quotes: { some: { source: 'WEB' } } }]));
-    });
-
-    it('filters agents by businessStatus without leaking web leads', async () => {
-      mockPrisma.client.findMany.mockResolvedValue([]);
-      mockPrisma.client.count.mockResolvedValue(0);
-
-      await listLeads({ page: 1, pageSize: 20, businessStatus: 'PENDIENTE_COTIZACION' }, agentUser);
-
-      const findManyCall = mockPrisma.client.findMany.mock.calls[0][0];
-      expect(findManyCall.where.OR).toBeUndefined();
-      expect(findManyCall.where.conversations).toEqual({
-        some: expect.objectContaining({ businessStatus: 'PENDIENTE_COTIZACION' }),
+      const call = mockPrisma.conversation.findMany.mock.calls[0][0];
+      expect(call.where.client).toEqual({
+        OR: [
+          { name: { contains: 'Juan' } },
+          { phone: { contains: 'Juan' } },
+        ],
       });
     });
 
-    it('returns client without quote when hasQuote=false', async () => {
-      const clientNoQuote = {
-        ...baseClient,
-        quotes: [],
-      };
-      mockPrisma.client.findMany.mockResolvedValue([clientNoQuote]);
-      mockPrisma.client.count.mockResolvedValue(1);
+    it('restricts agents to their assigned conversations', async () => {
+      mockPrisma.conversation.findMany.mockResolvedValue([] as never);
+      mockPrisma.conversation.count.mockResolvedValue(0 as never);
 
-      const result = await listLeads({ page: 1, pageSize: 20 }, adminUser);
+      await listLeads({ page: 1, pageSize: 20 }, agentUser);
 
-      expect(result.data[0].hasQuote).toBe(false);
-      expect(result.data[0].quote).toBeNull();
+      const call = mockPrisma.conversation.findMany.mock.calls[0][0];
+      expect(call.where.assignedUserId).toBe('agent-1');
     });
 
-    it('returns client without conversation when none active', async () => {
-      const clientNoConv = {
-        ...baseClient,
-        conversations: [],
+    it('orders by lastMessageAt desc', async () => {
+      mockPrisma.conversation.findMany.mockResolvedValue([] as never);
+      mockPrisma.conversation.count.mockResolvedValue(0 as never);
+
+      await listLeads({ page: 1, pageSize: 20 }, adminUser);
+
+      const call = mockPrisma.conversation.findMany.mock.calls[0][0];
+      expect(call.orderBy).toEqual({ lastMessageAt: 'desc' });
+    });
+  });
+
+  describe('exportLeadsCsv', () => {
+    it('returns a CSV with headers and rows separated by semicolons', async () => {
+      mockPrisma.conversation.findMany.mockResolvedValue([baseConversation] as never);
+
+      const csv = await exportLeadsCsv({}, adminUser);
+
+      expect(csv).toContain('Fecha último mensaje;Nombre;Teléfono;Estado;Gestión;Prioridad;Origen;Comercial');
+      expect(csv).toContain('Juan Pérez');
+      expect(csv).toContain('+5491155551234');
+      expect(csv).toContain('HUMAN_ACTIVE');
+      expect(csv).toContain('PENDIENTE_COTIZACION');
+      expect(csv).toContain('Pauta');
+      expect(csv).toContain('Agent');
+    });
+
+    it('escapes semicolons and quotes in cell values', async () => {
+      const tricky = {
+        ...baseConversation,
+        client: { ...baseConversation.client, name: 'María "La Grande"; Pérez' },
       };
-      mockPrisma.client.findMany.mockResolvedValue([clientNoConv]);
-      mockPrisma.client.count.mockResolvedValue(1);
+      mockPrisma.conversation.findMany.mockResolvedValue([tricky] as never);
 
-      const result = await listLeads({ page: 1, pageSize: 20 }, adminUser);
+      const csv = await exportLeadsCsv({}, adminUser);
 
-      expect(result.data[0].conversation).toBeNull();
+      expect(csv).toContain('"María ""La Grande""; Pérez"');
     });
   });
 });

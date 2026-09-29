@@ -396,76 +396,58 @@ Internamente el rol sigue siendo `AGENT` (string en BD, middlewares, middlewares
 
 ---
 
-## 12. Leads (Almacenamiento de Leads)
+## 12. Leads (Hoja de Cálculo de Conversaciones)
 
 ### 12.1 Descripción
 
-Pestaña "Leads" que muestra una vista consolidada de clientes potenciales, agrupando conversaciones activas y cotizaciones por cliente. Ubicada en el sidebar CRM, visible para todos los roles autenticados.
+Pestaña "Leads" que muestra **todas las conversaciones** como hoja de cálculo (una fila por conversación) con nombre, teléfono, estados, fecha del último mensaje y comercial asignado. Incluye filtros combinables y exportación CSV. Ubicada en el sidebar CRM, visible para todos los roles autenticados.
 
-### 12.2 Backend: Endpoint `GET /api/crm/leads`
+### 12.2 Backend: Endpoints `GET /api/crm/leads` y `GET /api/crm/leads/export`
 
-**Parámetros query:**
-- `page` (int, default 1)
-- `pageSize` (int, default 20, max 100)
+**Parámetros query (compartidos por ambos):**
+- `page` (int, default 1) y `pageSize` (int, default 50, max 500) — solo en `/leads`
 - `businessStatus` (string opcional): filtra por estado de gestión
-- `hasQuote` (boolean opcional): filtra clientes con/sin cotización
-- `search` (string opcional): busca por nombre o teléfono
+- `conversationStatus` (string opcional): filtra por estado de conversación (NEW, BOT_ACTIVE, …)
+- `priority` (enum URGENT|HIGH|NORMAL|LOW opcional)
+- `assignedUserId` (uuid opcional): filtra por comercial asignado
+- `source` (enum ADS|ORGANIC opcional; ORGANIC matchea `null`)
+- `search` (string opcional): busca por nombre o teléfono del cliente
+- `dateFrom`/`dateTo` (YYYY-MM-DD opcionales): rango sobre `lastMessageAt`
+- `includeFinal` (boolean opcional): incluye conversaciones con estado de gestión final (por defecto se excluyen los `isFinal` activos de `ConversationStatusConfig`)
 
 **Permisos:**
-- ADMIN y MARKETING_DIRECTOR: ven todos los leads
-- AGENT: solo leads con al menos una conversación activa asignada a él (el filtro se aplica tanto al listado como al total; sin él, un AGENT podía enumerar nombre y teléfono de todos los clientes)
+- ADMIN y MARKETING_DIRECTOR: ven todas las conversaciones
+- AGENT: solo conversaciones asignadas a él (el filtro se fuerza por servidor tanto en listado como en total y exportación)
 
-**Respuesta:**
-```json
-{
-  "data": [
-    {
-      "client": { "id", "name", "phone", "createdAt" },
-      "conversation": { "id", "status", "businessStatus", "priority", "lastMessageAt", "assignedUser": { "id", "name", "role" } },
-      "quote": { "id", "origin", "destination", "volume", "price", "status", "updatedAt" },
-      "hasQuote": true
-    }
-  ],
-  "pagination": { "total", "page", "pageSize", "totalPages" }
-}
-```
+**Exportación:** `/leads/export` responde `text/csv` (separador `;`, BOM UTF-8 para Excel, hasta 10.000 filas) con columnas: Fecha último mensaje, Nombre, Teléfono, Estado, Gestión, Prioridad, Origen, Comercial. Las celdas se escapan (comillas dobles, saltos, `;`).
 
 **Archivos:**
-- `src/crm/services/leadService.ts`: lógica de agrupación por cliente (última conversación activa + última cotización)
-- `src/crm/controllers/leadController.ts`: handler con validación zod
-- `src/crm/routes.ts`: `GET /api/crm/leads` (protegido por `requireCrmUser` global)
+- `src/crm/services/leadService.ts`: consulta centrada en `Conversation` (`buildConversationWhere` + `toLeadRow`) y builder CSV (`exportLeadsCsv`)
+- `src/crm/controllers/leadController.ts`: handlers con validación zod (`listLeads`, `exportLeads`)
+- `src/crm/routes.ts`: `GET /api/crm/leads` y `GET /api/crm/leads/export` (protegidos por `requireCrmUser` global)
 
 ### 12.3 Frontend: Pestaña `Leads.tsx`
 
 **Componente `Leads.tsx`:**
-- Tabla con columnas: Cliente (nombre/teléfono), Estado de gestión (badge con color), Cotización (badge Sí/No + estado), Asignado (nombre/rol), Última actividad (tiempo relativo), Acciones (ver detalle)
-- Filtros: búsqueda por nombre/teléfono, select de businessStatus, botones "Todos/Con cotización/Sin cotización"
+- Tabla con columnas: Último mensaje (fecha/hora completa), Cliente (nombre/teléfono), Estado (conversación), Gestión (badge con color dinámico de `ConversationStatusConfig`), Prioridad, Origen (Pauta/Orgánico), Comercial (nombre/rol)
+- Filtros: búsqueda con debounce, estados de gestión (dinámicos), estado de conversación, prioridad, comercial (solo ADMIN/MARKETING_DIRECTOR), origen, rango de fechas (último mensaje), "Incluir finalizadas" y botón "Limpiar filtros" con contador de filtros activos
+- Botón "Exportar CSV" que descarga el CSV del backend con los mismos filtros (axios blob + `Content-Disposition`)
 - Paginación con botones anterior/siguiente
-- Modal de detalle: información completa del cliente, conversación y cotización
 
 **Integración en `App.tsx`:**
-- Nuevo tab `'leads'` en tipo `activeTab`
-- Botón "Leads" en grupo CRM del sidebar (icono `Contact`)
-- Header: título "Leads", subtítulo "Vista consolidada de clientes potenciales"
-- Render: `<Leads token={token} />` cuando `activeTab === 'leads'`
+- Render: `<Leads token={token} userRole={crmUserRole} />` cuando `activeTab === 'leads'`
 
-### 12.4 Estado de Cotizaciones
+### 12.4 Tests
 
-La captura del bot ahora **persiste** en `Quote` al completarse el flujo (origen + destino + volumen, ver §9), con `conversationId` y `externalId` para correlación con el cotizador. Los clientes cuyo flujo de captura aún no se ha completado mostrarán "Sin cotización" en la pestaña Leads hasta que el bot cierre esa captura.
-
-### 12.5 Tests
-
-Tests unitarios en `src/crm/services/__tests__/leadService.test.ts` (9 tests):
-- Retorna leads paginados para admin
-- Filtra por businessStatus
-- Filtra por hasQuote=true y hasQuote=false
-- Busca por nombre o teléfono
-- Restringe agente a conversaciones asignadas
-- Restringe agente a clientes con al menos una conversación asignada (fuga de datos corregida)
-- Retorna cliente sin cotización
-- Retorna cliente sin conversación activa
-
-Total de tests: 121/121 pasan (incluye suites de integración del cotizador: firma, eventos, callback —con casos 401/400/503/200/dedup, quote.created, quote.estimated y leads web—, webhook client, conversationFlow y credentials, que además limpia la DB de dev al terminar el suite). Verificado además con E2E local en Docker contra el cotizador real (requested→captured→PATCH→callback→Quote ACCEPTED).
+Tests unitarios en `src/crm/services/__tests__/leadService.test.ts`:
+- Retorna filas de conversación con cliente y comercial para admin
+- Excluye estados finales por defecto e incluye con `includeFinal`
+- Filtra por businessStatus, conversationStatus, priority, source y rango de fechas
+- `source=ORGANIC` matchea `null`
+- Busca por nombre o teléfono del cliente
+- Restringe agentes a sus conversaciones asignadas
+- Ordena por `lastMessageAt desc`
+- CSV: encabezados y filas con `;` y escape de comillas/punto y coma
 
 ---
 

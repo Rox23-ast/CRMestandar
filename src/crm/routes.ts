@@ -41,7 +41,7 @@ import {
   updateConversationStatus,
   updateSlaPolicy
 } from './controllers/conversationController';
-import { listLeads } from './controllers/leadController';
+import { listLeads, exportLeads } from './controllers/leadController';
 import {
   listQuickReplies,
   createQuickReply,
@@ -64,6 +64,7 @@ crmRouter.post('/auth/change-password', changeOwnPassword);
 crmRouter.get('/settings/credentials', requireCrmRole('ADMIN'), getApiCredentials);
 crmRouter.put('/settings/credentials', requireCrmRole('ADMIN'), updateApiCredentials);
 crmRouter.get('/leads', listLeads);
+crmRouter.get('/leads/export', exportLeads);
 crmRouter.get('/conversations', listConversations);
 crmRouter.post('/conversations/start', startConversation);
 crmRouter.get('/conversations/:id', getConversation);
