@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, X, ContactRound, Reply } from 'lucide-react'
+import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, ChevronLeft, ChevronRight, X, ContactRound, Reply } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -162,7 +162,6 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [totalConversations, setTotalConversations] = useState(0)
   const [conversationPage, setConversationPage] = useState(1)
-  const [loadingMore, setLoadingMore] = useState(false)
   const [selected, setSelected] = useState<ConversationDetail | null>(null)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
@@ -202,6 +201,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const statusMenuRef = useRef<HTMLDivElement | null>(null)
   const assignMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedIdRef = useRef<string | null>(null)
+  const conversationPageRef = useRef(1)
   const eventAbort = useRef<AbortController | null>(null)
   const canAssign = userRole === 'ADMIN' || userRole === 'MARKETING_DIRECTOR'
 
@@ -303,7 +303,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     }
   }
 
-  const loadConversations = async (pageToLoad = 1, append = false) => {
+  const loadConversations = async (pageToLoad = 1) => {
     const params = new URLSearchParams()
     if (filterStatus) params.set('businessStatus', filterStatus)
     if (filterSource) params.set('source', filterSource)
@@ -314,20 +314,10 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     const response = await axios.get(`${API_URL}/api/crm/conversations?${params.toString()}`, { headers: authHeaders(token) })
     setTotalConversations(response.data.pagination?.total ?? response.data.data.length)
     setUnread(response.data.unreadCount ?? 0)
-    setConversationPage(pageToLoad)
-    setConversations((current) => (append ? [...current, ...response.data.data] : response.data.data))
-  }
-
-  const loadMoreConversations = async () => {
-    if (loadingMore) return
-    setLoadingMore(true)
-    try {
-      await loadConversations(conversationPage + 1, true)
-    } catch {
-      setError('No fue posible cargar más conversaciones.')
-    } finally {
-      setLoadingMore(false)
-    }
+    const loadedPage = response.data.pagination?.page ?? pageToLoad
+    setConversationPage(loadedPage)
+    conversationPageRef.current = loadedPage
+    setConversations(response.data.data)
   }
 
   const loadConversation = async (id: string) => {
@@ -345,7 +335,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       void loadAssignableUsers()
       void loadBotEnabled()
     }
-    void loadConversations().catch(() => setError('No fue posible cargar las conversaciones.'))
+    void loadConversations(conversationPageRef.current).catch(() => setError('No fue posible cargar las conversaciones.'))
 
     const controller = new AbortController()
     eventAbort.current = controller
@@ -366,7 +356,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
             if (done) break
             const chunk = decoder.decode(value)
             if (chunk.includes('notification.created')) {
-              void loadConversations()
+              void loadConversations(conversationPageRef.current)
               const match = chunk.match(/"conversationId":"([^"]+)"/)
               if (match?.[1] === selectedIdRef.current) {
                 void loadConversation(match[1]).catch(() => undefined)
@@ -390,22 +380,28 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     selectedIdRef.current = selected?.id ?? null
   }, [selected])
 
-  // Auto-refresh: polling ligero para no depender del F5 ni del SSE.
-  // También refresca de inmediato al cambiar filtros, sin esperar el próximo tick.
+  // Polling ligero para no depender del F5 ni del SSE: refresca la página
+  // actual de la bandeja y el detalle de la conversación seleccionada.
   useEffect(() => {
     if (!token) return
     const refresh = () => {
-      void loadConversations().catch(() => undefined)
+      void loadConversations(conversationPageRef.current).catch(() => undefined)
       if (selectedIdRef.current) {
         void loadConversation(selectedIdRef.current).catch(() => undefined)
       }
       if (canAssign) void loadBotEnabled()
     }
-    refresh()
     const interval = setInterval(refresh, 30000)
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, filterStatus, filterSource, filterSearch, filterIncludeFinal, canAssign])
+  }, [token, canAssign])
+
+  // Al cambiar cualquier filtro, se vuelve a la página 1.
+  useEffect(() => {
+    if (!token) return
+    void loadConversations(1).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, filterStatus, filterSource, filterSearch, filterIncludeFinal])
 
   // Debounce del buscador para no disparar una petición por tecla.
   useEffect(() => {
@@ -429,13 +425,13 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const handleTake = async () => {
     if (!selected) return
     await axios.post(`${API_URL}/api/crm/conversations/${selected.id}/claim`, {}, { headers: authHeaders(token) })
-    await Promise.all([loadConversation(selected.id), loadConversations()])
+    await Promise.all([loadConversation(selected.id), loadConversations(conversationPageRef.current)])
   }
 
   const handleReturnToBot = async () => {
     if (!selected) return
     await axios.post(`${API_URL}/api/crm/conversations/${selected.id}/bot`, {}, { headers: authHeaders(token) })
-    await Promise.all([loadConversation(selected.id), loadConversations()])
+    await Promise.all([loadConversation(selected.id), loadConversations(conversationPageRef.current)])
   }
 
   const handleBusinessStatusChange = async (newStatus: string) => {
@@ -447,7 +443,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
         { headers: authHeaders(token) }
       )
       setStatusMenuOpen(false)
-      await Promise.all([loadConversation(selected.id), loadConversations()])
+      await Promise.all([loadConversation(selected.id), loadConversations(conversationPageRef.current)])
     } catch {
       setError('No fue posible actualizar el estado de gestión.')
     }
@@ -462,7 +458,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
         { headers: authHeaders(token) }
       )
       setAssignMenuOpen(false)
-      await Promise.all([loadConversation(selected.id), loadConversations()])
+      await Promise.all([loadConversation(selected.id), loadConversations(conversationPageRef.current)])
     } catch {
       setError('No fue posible asignar la conversación.')
     }
@@ -485,7 +481,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
         { headers: authHeaders(token) }
       )
       setClientModalOpen(false)
-      await Promise.all([loadConversation(selected.id), loadConversations()])
+      await Promise.all([loadConversation(selected.id), loadConversations(conversationPageRef.current)])
     } catch (error) {
       const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setError(detail ? `No fue posible guardar el cliente: ${detail}` : 'No fue posible guardar el cliente.')
@@ -507,7 +503,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       setNewPhone('')
       setNewMessage('')
       setStartOpen(false)
-      await loadConversations()
+      await loadConversations(conversationPageRef.current)
       await loadConversation(response.data.conversation.id)
     } catch (error) {
       const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -532,7 +528,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       )
       setDraft('')
       setReplyTo(null)
-      await Promise.all([loadConversation(selected.id), loadConversations()])
+      await Promise.all([loadConversation(selected.id), loadConversations(conversationPageRef.current)])
     } catch {
       setError('No fue posible enviar el mensaje por WhatsApp.')
     }
@@ -636,7 +632,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       )
       setAttachment(null)
       setDraft('')
-      await Promise.all([loadConversation(selected.id), loadConversations()])
+      await Promise.all([loadConversation(selected.id), loadConversations(conversationPageRef.current)])
     } catch (error) {
       const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setError(detail ? `No fue posible enviar el archivo: ${detail}` : 'No fue posible enviar el archivo por WhatsApp.')
@@ -649,6 +645,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     return config ? { label: config.label, color: config.color } : { label: code, color: '#94a3b8' }
   }
 
+  const totalPages = Math.max(1, Math.ceil(totalConversations / 500))
   const slashIndex = draft.lastIndexOf('/')
   const slashToken = slashIndex !== -1 ? draft.slice(slashIndex) : ''
   const quickMenuVisible = slashToken.startsWith('/') && !slashToken.includes(' ') && !slashToken.includes('\n') && quickReplies.length > 0
@@ -897,15 +894,27 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
               </button>
             )
           })}
-          {conversations.length < totalConversations && (
+          </div>
+          <div className="border-t border-neutral-gray p-2 flex items-center justify-between gap-2 flex-shrink-0 bg-white">
             <button
-              onClick={() => void loadMoreConversations()}
-              disabled={loadingMore}
-              className="w-full p-3 text-sm text-secondary hover:bg-neutral-light/50 transition-colors"
+              type="button"
+              onClick={() => void loadConversations(conversationPage - 1)}
+              disabled={conversationPage <= 1}
+              className="p-1.5 rounded border border-neutral-gray text-neutral-darkgray hover:bg-neutral-light disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Página anterior"
             >
-              {loadingMore ? 'Cargando…' : `Cargar más (${conversations.length} de ${totalConversations})`}
+              <ChevronLeft className="w-4 h-4" />
             </button>
-          )}
+            <span className="text-xs text-neutral-darkgray">Página {conversationPage} de {totalPages}</span>
+            <button
+              type="button"
+              onClick={() => void loadConversations(conversationPage + 1)}
+              disabled={conversationPage >= totalPages}
+              className="p-1.5 rounded border border-neutral-gray text-neutral-darkgray hover:bg-neutral-light disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Página siguiente"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         </section>
         <section className="flex flex-col h-full overflow-hidden">

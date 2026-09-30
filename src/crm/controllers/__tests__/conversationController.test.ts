@@ -399,7 +399,7 @@ describe('conversationController - listConversations', () => {
     );
     expect(mockPrisma.conversation.findMany).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ where: expect.objectContaining({ id: { notIn: ['conv-unread'] } }), skip: 0, take: 50 })
+      expect.objectContaining({ where: expect.objectContaining({ id: { notIn: ['conv-unread'] } }), skip: 0, take: 49 })
     );
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -409,6 +409,30 @@ describe('conversationController - listConversations', () => {
           expect.objectContaining({ id: 'conv-read-2', unread: false })
         ],
         unreadCount: expect.any(Number)
+      })
+    );
+  });
+
+  it('does not repeat unread conversations on page 2 and offsets the skip', async () => {
+    mockPrisma.notification.findMany.mockResolvedValue([{ conversationId: 'conv-unread' }] as never);
+    mockPrisma.conversation.findMany.mockResolvedValueOnce([{ id: 'conv-read-3' }] as never);
+    mockPrisma.conversation.count.mockResolvedValue(53 as never);
+
+    const res = makeRes();
+    await listConversations(makeReq({ query: { page: '2', pageSize: '50', includeFinal: 'true' } }), res);
+
+    expect(mockPrisma.conversation.findMany).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.conversation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.not.objectContaining({ id: expect.objectContaining({ notIn: expect.anything() }) }),
+        skip: 49,
+        take: 50
+      })
+    );
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ id: 'conv-read-3', unread: false })],
+        pagination: expect.objectContaining({ page: 2 })
       })
     );
   });

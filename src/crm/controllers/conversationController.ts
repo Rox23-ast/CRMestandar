@@ -171,7 +171,7 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
 
   // Conversaciones no leídas para este usuario: notificaciones sin readAt.
   // La persistencia vive en Notification.readAt; así el "no leído" sobrevive
-  // a recargas y las conversaciones no leídas salen siempre al inicio.
+  // a recargas y las conversaciones no leídas salen al inicio de la página 1.
   const unreadRows = await prisma.notification.findMany({
     where: {
       OR: [{ userId: req.user.id }, { role: req.user.role }],
@@ -183,7 +183,10 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
   const unreadIds = [...new Set(unreadRows.map((row) => row.conversationId as string))];
   const unreadIdSet = new Set(unreadIds);
 
-  const unreadConversations = unreadIds.length > 0
+  // Las no leídas solo se anteponen en la página 1; en las siguientes, el
+  // skip descuenta las no leídas ya mostradas para no repetir ni saltar filas.
+  const unreadOnFirstPage = Math.min(unreadIds.length, pageSize);
+  const unreadConversations = page === 1 && unreadOnFirstPage > 0
     ? await prisma.conversation.findMany({
         where: { ...where, id: { in: unreadIds } },
         include,
@@ -192,15 +195,16 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
       })
     : [];
 
-  const restWhere = unreadIds.length > 0 ? { ...where, id: { notIn: unreadIds } } : where;
-  const restSkip = Math.max(0, (page - 1) * pageSize - unreadConversations.length);
+  const restWhere = page === 1 && unreadOnFirstPage > 0 ? { ...where, id: { notIn: unreadIds } } : where;
+  const restSkip = Math.max(0, (page - 1) * pageSize - (page === 1 ? 0 : unreadOnFirstPage));
+  const restTake = page === 1 ? pageSize - unreadConversations.length : pageSize;
   const [rest, total, unreadTotal] = await Promise.all([
     prisma.conversation.findMany({
       where: restWhere,
       include,
       orderBy,
       skip: restSkip,
-      take: pageSize
+      take: restTake
     }),
     prisma.conversation.count({ where }),
     unreadIds.length > 0
