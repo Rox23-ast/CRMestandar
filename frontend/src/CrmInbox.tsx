@@ -118,12 +118,18 @@ const ACCEPTED_ATTACHMENT_EXTENSIONS = Object.keys(EXTENSION_KIND).map((ext) => 
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` })
 
+const isExternalUrl = (value: string) => /^https?:\/\//i.test(value)
+
 const InboundMedia = ({ token, mediaId, type, body }: { token: string; mediaId: string; type: string; body?: string | null }) => {
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  // Algunos adjuntos no vienen de la Media API de Meta sino de una URL
+  // pública (p. ej. el PDF del estimado que envía el cotizador): esos se
+  // enlazan directo, sin pasar por el proxy de media.
+  const external = isExternalUrl(mediaId)
 
   useEffect(() => {
-    if (!mediaId) return
+    if (!mediaId || external) return
     let objectUrl: string | null = null
     let cancelled = false
     axios
@@ -140,9 +146,25 @@ const InboundMedia = ({ token, mediaId, type, body }: { token: string; mediaId: 
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [mediaId, token])
+  }, [mediaId, token, external])
 
   if (!mediaId || failed) return <p>{body || `Archivo ${type.toLowerCase()} recibido.`}</p>
+  if (external) {
+    return (
+      <div>
+        {body && <p className="mb-2">{body}</p>}
+        <a
+          href={mediaId}
+          target="_blank"
+          rel="noreferrer"
+          download
+          className="underline text-secondary"
+        >
+          {type === 'DOCUMENT' ? 'Ver documento' : 'Ver archivo'}
+        </a>
+      </div>
+    )
+  }
   if (!url) return <p>Cargando {type.toLowerCase()}…</p>
   if (type === 'IMAGE' || type === 'STICKER') return <img src={url} alt={body || 'imagen'} className="max-w-full rounded" />
   if (type === 'VIDEO') return <video src={url} controls className="max-w-full rounded" />
