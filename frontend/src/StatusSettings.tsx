@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { Trash2, Save, X, UserCheck } from 'lucide-react'
+import { Trash2, Save, X, UserCheck, Pencil } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -243,18 +243,20 @@ export default function StatusSettings({ token }: { token: string }) {
                     <span className="text-sm text-neutral-darkgray">Orden: {status.sortOrder}</span>
                     <button
                       onClick={() => handleEdit(status)}
-                      className="p-2 text-neutral-darkgray hover:text-primary hover:bg-neutral-light/50 rounded transition-colors"
-                      title="Editar"
+                      className="flex items-center space-x-1.5 px-3 py-1.5 text-sm border border-secondary text-secondary rounded-md hover:bg-secondary/10 transition-colors"
+                      title="Editar estado"
                     >
-                      <Save className="w-4 h-4" />
+                      <Pencil className="w-4 h-4" />
+                      <span>Editar</span>
                     </button>
                     {status.isActive && (
                       <button
                         onClick={() => handleDelete(status.id)}
-                        className="p-2 text-neutral-darkgray hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                        className="flex items-center space-x-1.5 px-3 py-1.5 text-sm border border-neutral-gray text-neutral-darkgray rounded-md hover:text-red-500 hover:border-red-300 transition-colors"
                         title="Desactivar"
                       >
                         <Trash2 className="w-4 h-4" />
+                        <span>Desactivar</span>
                       </button>
                     )}
                   </div>
