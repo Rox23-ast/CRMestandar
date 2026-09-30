@@ -842,53 +842,50 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                 + Nuevo chat con otro número
               </button>
             )}
-            {canAssign && (
-              repliesPanelOpen ? (
-                <div className="space-y-2 pt-1 border-t border-neutral-gray">
-                  <p className="text-xs font-medium text-neutral-darkgray">Respuestas rápidas (escribe / en el chat)</p>
-                  <input
-                    value={replyLabel}
-                    onChange={(e) => setReplyLabel(e.target.value)}
-                    placeholder="Nombre corto (ej. saludo)"
-                    className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
-                  />
-                  <textarea
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    rows={2}
-                    placeholder="Texto del mensaje…"
-                    className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white resize-none"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void saveQuickReply()}
-                      disabled={!replyLabel.trim() || !replyText.trim()}
-                      className="flex-1 bg-primary text-white px-3 py-1.5 rounded-md text-sm disabled:opacity-50"
-                    >
-                      {editingReplyId ? 'Actualizar' : 'Agregar'}
-                    </button>
-                    {editingReplyId && (
+            {repliesPanelOpen ? (
+              <div className="space-y-2 pt-1 border-t border-neutral-gray">
+                <p className="text-xs font-medium text-neutral-darkgray">Respuestas rápidas (escribe / en el chat)</p>
+                {canAssign && (
+                  <>
+                    <input
+                      value={replyLabel}
+                      onChange={(e) => setReplyLabel(e.target.value)}
+                      placeholder="Nombre corto (ej. saludo)"
+                      className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+                    />
+                    <textarea
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      rows={2}
+                      placeholder="Texto del mensaje…"
+                      className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white resize-none"
+                    />
+                    <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => { setEditingReplyId(null); setReplyLabel(''); setReplyText('') }}
-                        className="border border-neutral-gray text-neutral-dark px-3 py-1.5 rounded-md text-sm"
+                        onClick={() => void saveQuickReply()}
+                        disabled={!replyLabel.trim() || !replyText.trim()}
+                        className="flex-1 bg-primary text-white px-3 py-1.5 rounded-md text-sm disabled:opacity-50"
                       >
-                        Cancelar
+                        {editingReplyId ? 'Actualizar' : 'Agregar'}
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setRepliesPanelOpen(false)}
-                      className="border border-neutral-gray text-neutral-dark px-3 py-1.5 rounded-md text-sm"
-                    >
-                      Cerrar
-                    </button>
-                  </div>
-                  <div className="max-h-40 overflow-y-auto space-y-1">
-                    {quickReplies.map((reply) => (
-                      <div key={reply.id} className="flex items-center justify-between gap-2 text-xs border border-neutral-gray rounded px-2 py-1">
-                        <span className="truncate font-medium text-primary">/{reply.label}</span>
+                      {editingReplyId && (
+                        <button
+                          type="button"
+                          onClick={() => { setEditingReplyId(null); setReplyLabel(''); setReplyText('') }}
+                          className="border border-neutral-gray text-neutral-dark px-3 py-1.5 rounded-md text-sm"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+                <div className="max-h-40 overflow-y-auto space-y-1">
+                  {quickReplies.map((reply) => (
+                    <div key={reply.id} className="flex items-center justify-between gap-2 text-xs border border-neutral-gray rounded px-2 py-1">
+                      <span className="truncate font-medium text-primary">/{reply.label}</span>
+                      {canAssign && (
                         <span className="flex gap-1 flex-shrink-0">
                           <button
                             type="button"
@@ -905,19 +902,26 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                             Eliminar
                           </button>
                         </span>
-                      </div>
-                    ))}
-                  </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ) : (
                 <button
                   type="button"
-                  onClick={() => setRepliesPanelOpen(true)}
-                  className="w-full border border-dashed border-accent-gold/60 text-accent-gold px-3 py-1.5 rounded-md text-sm hover:bg-accent-gold/10 transition-colors flex items-center justify-center gap-1"
+                  onClick={() => setRepliesPanelOpen(false)}
+                  className="w-full border border-neutral-gray text-neutral-dark px-3 py-1.5 rounded-md text-sm"
                 >
-                  <Zap className="w-4 h-4" /> Respuestas rápidas
+                  Cerrar
                 </button>
-              )
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setRepliesPanelOpen(true)}
+                className="w-full border border-dashed border-accent-gold/60 text-accent-gold px-3 py-1.5 rounded-md text-sm hover:bg-accent-gold/10 transition-colors flex items-center justify-center gap-1"
+              >
+                <Zap className="w-4 h-4" /> Respuestas rápidas
+              </button>
             )}
           </div>
           <div className="flex-1 overflow-y-auto">
