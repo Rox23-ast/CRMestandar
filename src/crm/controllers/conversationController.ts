@@ -29,6 +29,10 @@ const messageSchema = z.object({
   replyToMessageId: z.string().uuid().optional()
 });
 
+const updateMessageSchema = z.object({
+  body: z.string().trim().min(1).max(4096)
+});
+
 const startConversationSchema = z.object({
   phone: z.string().trim().regex(/^\+?\d{7,20}$/, 'Phone must be digits with optional +'),
   body: z.string().trim().min(1).max(4096)
@@ -620,6 +624,64 @@ export const sendAgentAttachment = async (req: AuthenticatedRequest, res: Respon
 
   if (!sent) return problem(res, 502, 'WhatsApp media message could not be sent');
   return res.status(201).json(message);
+};
+
+/**
+ * PATCH /api/crm/messages/:id
+ * Edita el registro local de un mensaje enviado (OUTBOUND). WhatsApp no
+ * permite editar mensajes ya entregados, así que el cambio solo se refleja
+ * en el historial del CRM.
+ */
+export const updateMessage = async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return problem(res, 401, 'Authentication required');
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Message ID is invalid');
+  const parsed = updateMessageSchema.safeParse(req.body);
+  if (!parsed.success) return problem(res, 400, 'Message body is invalid');
+
+  const message = await prisma.message.findUnique({ where: { id: parsedId.data } });
+  if (!message) return problem(res, 404, 'Message not found');
+  if (message.direction !== 'OUTBOUND') {
+    return problem(res, 400, 'Only sent messages can be edited');
+  }
+
+  const conversation = await prisma.conversation.findUnique({ where: { id: message.conversationId } });
+  if (!conversation) return problem(res, 404, 'Conversation not found');
+  if (!canSeeAllConversations(req.user.role) && conversation.assignedUserId !== req.user.id) {
+    return problem(res, 403, 'Conversation is not assigned to this user');
+  }
+
+  const updated = await prisma.message.update({
+    where: { id: message.id },
+    data: { body: parsed.data.body }
+  });
+  return res.json(updated);
+};
+
+/**
+ * DELETE /api/crm/messages/:id
+ * Elimina el registro local de un mensaje enviado (OUTBOUND). El mensaje ya
+ * entregado sigue visible para el cliente en WhatsApp.
+ */
+export const deleteMessage = async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return problem(res, 401, 'Authentication required');
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Message ID is invalid');
+
+  const message = await prisma.message.findUnique({ where: { id: parsedId.data } });
+  if (!message) return problem(res, 404, 'Message not found');
+  if (message.direction !== 'OUTBOUND') {
+    return problem(res, 400, 'Only sent messages can be deleted');
+  }
+
+  const conversation = await prisma.conversation.findUnique({ where: { id: message.conversationId } });
+  if (!conversation) return problem(res, 404, 'Conversation not found');
+  if (!canSeeAllConversations(req.user.role) && conversation.assignedUserId !== req.user.id) {
+    return problem(res, 403, 'Conversation is not assigned to this user');
+  }
+
+  await prisma.message.delete({ where: { id: message.id } });
+  return res.status(204).send();
 };
 
 /**

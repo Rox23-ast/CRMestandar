@@ -39,6 +39,8 @@ import {
   updateBusinessHours,
   updateConversationClient,
   updateConversationStatus,
+  updateMessage,
+  deleteMessage,
   updateSlaPolicy
 } from './controllers/conversationController';
 import { listLeads, exportLeads } from './controllers/leadController';
@@ -75,6 +77,8 @@ crmRouter.post('/conversations/:id/bot', reactivateBot);
 crmRouter.post('/conversations/:id/assign', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), assignConversation);
 crmRouter.get('/assignable-users', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), listAssignableUsers);
 crmRouter.patch('/conversations/:id/status', updateConversationStatus);
+crmRouter.patch('/messages/:id', updateMessage);
+crmRouter.delete('/messages/:id', deleteMessage);
 crmRouter.post('/conversations/:id/messages', sendAgentMessage);
 crmRouter.post(
   '/conversations/:id/attachments',

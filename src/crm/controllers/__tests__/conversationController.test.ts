@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { statusSchema, listAssignableUsers, sendAgentAttachment, sendAgentMessage, startConversation, getMedia, updateConversationClient, listConversations, getConversation } from '../conversationController';
+import { statusSchema, listAssignableUsers, sendAgentAttachment, sendAgentMessage, startConversation, getMedia, updateConversationClient, listConversations, getConversation, updateMessage, deleteMessage } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
 import { recordOutboundMessage } from '../../services/conversationService';
 import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
@@ -9,9 +9,9 @@ jest.mock('../../../core/database/prisma', () => ({
     user: { findMany: jest.fn() },
     conversation: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), findMany: jest.fn(), count: jest.fn() },
     client: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
-    message: { findUnique: jest.fn() },
     notification: { findMany: jest.fn(), updateMany: jest.fn() },
-    conversationStatusConfig: { findMany: jest.fn() }
+    conversationStatusConfig: { findMany: jest.fn() },
+    message: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn() }
   }
 }));
 
@@ -31,9 +31,9 @@ const mockPrisma = prisma as unknown as {
   user: { findMany: jest.Mock };
   conversation: { findUnique: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock; findMany: jest.Mock; count: jest.Mock };
   client: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
-  message: { findUnique: jest.Mock };
   notification: { findMany: jest.Mock; updateMany: jest.Mock };
   conversationStatusConfig: { findMany: jest.Mock };
+  message: { findUnique: jest.Mock; update: jest.Mock; delete: jest.Mock };
 };
 const mockRecordOutbound = recordOutboundMessage as jest.Mock;
 const mockUploadMedia = uploadWhatsAppMedia as jest.Mock;
@@ -686,5 +686,84 @@ describe('conversationController - sendAgentMessage con respuesta a un mensaje',
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockSendWhatsApp).not.toHaveBeenCalled();
+  });
+});
+
+describe('conversationController - updateMessage / deleteMessage', () => {
+  const MESSAGE_ID = '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60';
+  const makeReq = (overrides: Record<string, unknown> = {}) => ({
+    user: { id: 'admin-1', role: 'ADMIN' },
+    params: { id: MESSAGE_ID },
+    body: { body: 'Texto editado' },
+    ...overrides
+  }) as never;
+  const makeRes = () => {
+    const res = {
+      status: jest.fn(),
+      json: jest.fn(),
+      send: jest.fn()
+    };
+    res.status.mockReturnValue(res);
+    res.json.mockReturnValue(res);
+    res.send.mockReturnValue(res);
+    return res as unknown as Response & { status: jest.Mock; json: jest.Mock; send: jest.Mock };
+  };
+
+  const OUTBOUND = { id: MESSAGE_ID, direction: 'OUTBOUND', conversationId: 'conv-1', body: 'original' };
+  const INBOUND = { id: MESSAGE_ID, direction: 'INBOUND', conversationId: 'conv-1', body: 'del cliente' };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: 'conv-1', assignedUserId: null, assignedRole: 'MARKETING_DIRECTOR' } as never);
+    mockPrisma.message.update.mockResolvedValue({ id: MESSAGE_ID, body: 'Texto editado' } as never);
+  });
+
+  it('edits the body of an OUTBOUND message', async () => {
+    mockPrisma.message.findUnique.mockResolvedValue(OUTBOUND as never);
+    const res = makeRes();
+    await updateMessage(makeReq(), res);
+
+    expect(mockPrisma.message.update).toHaveBeenCalledWith({
+      where: { id: MESSAGE_ID },
+      data: { body: 'Texto editado' }
+    });
+    expect(res.json).toHaveBeenCalled();
+  });
+
+  it('rejects editing an INBOUND message (400)', async () => {
+    mockPrisma.message.findUnique.mockResolvedValue(INBOUND as never);
+    const res = makeRes();
+    await updateMessage(makeReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockPrisma.message.update).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when an agent edits a message of another conversation', async () => {
+    mockPrisma.message.findUnique.mockResolvedValue(OUTBOUND as never);
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: 'conv-1', assignedUserId: 'other-agent' } as never);
+    const res = makeRes();
+    await updateMessage(makeReq({ user: { id: 'agent-1', role: 'AGENT' } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it('deletes an OUTBOUND message (204)', async () => {
+    mockPrisma.message.findUnique.mockResolvedValue(OUTBOUND as never);
+    mockPrisma.message.delete.mockResolvedValue({} as never);
+    const res = makeRes();
+    await deleteMessage(makeReq({ body: {} }), res);
+
+    expect(mockPrisma.message.delete).toHaveBeenCalledWith({ where: { id: MESSAGE_ID } });
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it('rejects deleting an INBOUND message (400)', async () => {
+    mockPrisma.message.findUnique.mockResolvedValue(INBOUND as never);
+    const res = makeRes();
+    await deleteMessage(makeReq({ body: {} }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockPrisma.message.delete).not.toHaveBeenCalled();
   });
 });

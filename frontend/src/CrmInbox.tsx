@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, ChevronLeft, ChevronRight, X, ContactRound, Reply } from 'lucide-react'
+import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, ChevronLeft, ChevronRight, X, ContactRound, Reply, Pencil, Trash2 } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -212,6 +212,8 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [togglingBot, setTogglingBot] = useState(false)
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState('')
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
   const botConfigRef = useRef<Record<string, unknown> | null>(null)
@@ -667,6 +669,43 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     return config ? { label: config.label, color: config.color } : { label: code, color: '#94a3b8' }
   }
 
+  const startEditingMessage = (message: Message) => {
+    setEditingMessageId(message.id)
+    setEditDraft(message.body ?? '')
+  }
+
+  const cancelEditingMessage = () => {
+    setEditingMessageId(null)
+    setEditDraft('')
+  }
+
+  const saveEditedMessage = async (messageId: string) => {
+    if (!selected || !editDraft.trim()) return
+    try {
+      await axios.patch(
+        `${API_URL}/api/crm/messages/${messageId}`,
+        { body: editDraft.trim() },
+        { headers: authHeaders(token) }
+      )
+      cancelEditingMessage()
+      await loadConversation(selected.id)
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setError(detail ? `No fue posible editar el mensaje: ${detail}` : 'No fue posible editar el mensaje.')
+    }
+  }
+
+  const removeMessage = async (messageId: string) => {
+    if (!selected) return
+    if (!window.confirm('¿Eliminar este mensaje del historial? El cliente seguirá viendo el mensaje original en WhatsApp.')) return
+    try {
+      await axios.delete(`${API_URL}/api/crm/messages/${messageId}`, { headers: authHeaders(token) })
+      await loadConversation(selected.id)
+    } catch {
+      setError('No fue posible eliminar el mensaje.')
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(totalConversations / 500))
   const slashIndex = draft.lastIndexOf('/')
   const slashToken = slashIndex !== -1 ? draft.slice(slashIndex) : ''
@@ -1068,16 +1107,62 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                         <span className="block truncate">{(replied.body || (replied.mediaId ? 'Adjunto' : 'Mensaje')).slice(0, 140)}</span>
                       </div>
                     )}
-                    {message.mediaId && message.type !== 'TEXT' ? <InboundMedia token={token} mediaId={message.mediaId} type={message.type} body={message.body} /> : <p>{message.body || `Archivo ${message.type.toLowerCase()} recibido.`}</p>}
-                    <p className="text-[10px] opacity-60 mt-1">{message.senderType} · {new Date(message.createdAt).toLocaleString()}</p>
-                    <button
-                      type="button"
-                      onClick={() => setReplyTo(replyTo?.id === message.id ? null : message)}
-                      title="Responder a este mensaje"
-                      className={`absolute -top-2 right-2 p-1 rounded-full shadow transition-opacity opacity-0 group-hover:opacity-100 ${replyTo?.id === message.id ? 'opacity-100 bg-accent-gold text-white' : 'bg-white text-neutral-darkgray hover:text-secondary'}`}
-                    >
-                      <Reply className="w-3.5 h-3.5" />
-                    </button>
+                    {editingMessageId === message.id ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={editDraft}
+                          onChange={(event) => setEditDraft(event.target.value)}
+                          rows={3}
+                          autoFocus
+                          className="w-full p-2 rounded bg-white/10 border border-white/40 text-white text-sm resize-none focus:outline-none focus:border-white/80 placeholder-white/50"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={cancelEditingMessage} className="text-xs px-2.5 py-1 rounded bg-white/20 hover:bg-white/30 transition-colors">
+                            Cancelar
+                          </button>
+                          <button type="button" onClick={() => void saveEditedMessage(message.id)} className="text-xs px-2.5 py-1 rounded bg-accent-gold text-white hover:bg-accent-gold/90 transition-colors">
+                            Guardar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {message.mediaId && message.type !== 'TEXT' ? <InboundMedia token={token} mediaId={message.mediaId} type={message.type} body={message.body} /> : <p>{message.body || `Archivo ${message.type.toLowerCase()} recibido.`}</p>}
+                        <p className="text-[10px] opacity-60 mt-1">{message.senderType} · {new Date(message.createdAt).toLocaleString()}</p>
+                      </>
+                    )}
+                    {editingMessageId !== message.id && (
+                      <div className={`absolute -top-2 right-2 flex gap-1 transition-opacity opacity-0 group-hover:opacity-100 ${replyTo?.id === message.id ? 'opacity-100' : ''}`}>
+                        {message.direction === 'OUTBOUND' && message.type === 'TEXT' && (
+                          <button
+                            type="button"
+                            onClick={() => startEditingMessage(message)}
+                            title="Editar mensaje (solo el historial del CRM; WhatsApp ya envió el original)"
+                            className="p-1 rounded-full shadow bg-white text-neutral-darkgray hover:text-secondary transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {message.direction === 'OUTBOUND' && (
+                          <button
+                            type="button"
+                            onClick={() => void removeMessage(message.id)}
+                            title="Eliminar mensaje del historial del CRM"
+                            className="p-1 rounded-full shadow bg-white text-neutral-darkgray hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setReplyTo(replyTo?.id === message.id ? null : message)}
+                          title="Responder a este mensaje"
+                          className={`p-1 rounded-full shadow ${replyTo?.id === message.id ? 'bg-accent-gold text-white' : 'bg-white text-neutral-darkgray hover:text-secondary'} transition-colors`}
+                        >
+                          <Reply className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )
               })}</div>
