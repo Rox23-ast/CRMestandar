@@ -92,44 +92,11 @@ export const isWithinBusinessHours = async (date = new Date()) => {
   return isWithinTimeSlot(parts.minutes, slot);
 };
 
-const getAssignmentTarget = async (
-  tx: Prisma.TransactionClient | PrismaClient,
-  now: Date
-): Promise<AssignmentTarget> => {
-  if (!(await isWithinBusinessHours(now))) {
-    const directors = await tx.user.findMany({ where: { role: MARKETING_ROLE, isActive: true }, orderBy: { createdAt: 'asc' } });
-    const director = directors[0];
-    return director
-      ? { userId: director.id, role: MARKETING_ROLE, reason: 'OUT_OF_HOURS' }
-      : { role: MARKETING_ROLE, reason: 'OUT_OF_HOURS' };
-  }
-
-  const agents = await tx.user.findMany({ where: { role: 'AGENT', availabilityStatus: 'AVAILABLE', isActive: true } });
-  const eligibleAgents = [];
-
-  for (const agent of agents) {
-    const activeCount = await tx.conversation.count({
-      where: {
-        assignedUserId: agent.id,
-        status: { in: [...ACTIVE_CONVERSATION_STATUSES] }
-      }
-    });
-
-    if (activeCount < agent.maxActiveConversations) {
-      eligibleAgents.push(agent);
-    }
-  }
-
-  eligibleAgents.sort((left, right) => {
-    const leftTime = left.lastAssignedAt?.getTime() ?? 0;
-    const rightTime = right.lastAssignedAt?.getTime() ?? 0;
-    return leftTime - rightTime;
-  });
-
-  const agent = eligibleAgents[0];
-  return agent
-    ? { userId: agent.id, reason: 'ROUND_ROBIN' }
-    : { role: MARKETING_ROLE, reason: 'NO_AVAILABLE_AGENT' };
+// Las conversaciones nuevas entran inicialmente a la cola del rol
+// MARKETING_DIRECTOR (sin usuario asignado): la directora de marketing las
+// distribuye a los comerciales desde la bandeja con "Asignar".
+const getAssignmentTarget = async (): Promise<AssignmentTarget> => {
+  return { role: MARKETING_ROLE, reason: 'INITIAL_MARKETING_QUEUE' };
 };
 
 const createAssignment = async (
@@ -209,7 +176,7 @@ export const createOrGetConversation = async (phone: string, now = new Date(), c
     });
     if (existing) return { conversation: existing, isNew: false, target: undefined };
 
-    const target = await getAssignmentTarget(tx, now);
+    const target = await getAssignmentTarget();
     const sla = await tx.slaPolicy.findUnique({ where: { id: 'default' } });
     const created = await tx.conversation.create({
       data: {

@@ -43,8 +43,7 @@ La persistencia de datos se maneja mediante **SQLite** y se gestiona con el ORM 
 
 - **Conversación como unidad de trabajo:** El primer mensaje de un cliente crea una `Conversation`. Los mensajes posteriores mantienen la misma asignación hasta que la conversación se cierre.
 - **Mensajes:** Cada entrada y salida se registra en `Message`, con dirección, autor (`CUSTOMER`, `BOT`, `AGENT`), tipo, estado de entrega e identificador externo de WhatsApp para evitar duplicados.
-- **Asignación durante horario laboral:** Se selecciona un agente con estado `AVAILABLE`, capacidad disponible y la asignación más antigua (`round-robin`).
-- **Asignación fuera de horario:** Se asigna al rol `MARKETING_DIRECTOR`. La configuración inicial usa `America/Bogota`, lunes a viernes de 08:00 a 18:00, y admite excepciones por fecha.
+- **Asignación inicial:** toda conversación nueva entra a la cola del rol `MARKETING_DIRECTOR` (`assignedRole`, sin `assignedUserId`) con `reason: INITIAL_MARKETING_QUEUE`; la directora de marketing distribuye a los comerciales desde la bandeja con "Asignar" (el round-robin automático quedó deshabilitado).
 - **Control bot/agente:** La conversación inicia en `BOT_ACTIVE`. El agente puede tomarla (`HUMAN_ACTIVE`) y reactivar el bot explícitamente. Una conversación resuelta se reabre cuando llega un nuevo mensaje.
 - **Auditoría:** Cambios de asignación, toma de control y reactivación del bot se registran en `AuditEvent`.
 - **Seguimiento:** `SlaPolicy`, prioridad y `nextFollowUpAt` permiten ajustar los tiempos de respuesta y seguimiento sin hard-codear la operación.
@@ -432,6 +431,7 @@ Pestaña "Leads" que muestra **todas las conversaciones** como hoja de cálculo 
 
 **Componente `Leads.tsx`:**
 - Tabla con columnas: Último mensaje (fecha/hora completa), Cliente (nombre/teléfono), Estado (conversación), Gestión (badge con color dinámico de `ConversationStatusConfig`), Prioridad, Origen (Pauta/Orgánico), Comercial (nombre/rol)
+- Botón "Sincronizar" que recarga los datos al instante y auto-refresco ligero cada 30 s (las asignaciones hechas desde la bandeja se reflejan sin salir de la pestaña)
 - Filtros: búsqueda con debounce, estados de gestión (dinámicos), estado de conversación, prioridad, comercial (solo ADMIN/MARKETING_DIRECTOR), origen, rango de fechas (último mensaje), "Incluir finalizadas" y botón "Limpiar filtros" con contador de filtros activos
 - Botón "Exportar CSV" que descarga el CSV del backend con los mismos filtros (axios blob + `Content-Disposition`)
 - Paginación con botones anterior/siguiente

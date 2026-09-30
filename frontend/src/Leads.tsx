@@ -9,6 +9,7 @@ import {
   Loader2,
   AlertCircle,
   Download,
+  RefreshCw,
   X,
 } from 'lucide-react';
 
@@ -155,6 +156,16 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
     void fetchLeads();
   }, [fetchLeads]);
 
+  // Refresco ligero: mantiene la hoja actualizada (asignaciones y estados)
+  // sin depender del F5 ni de volver a entrar a la pestaña.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void fetchLeads().catch(() => undefined);
+    }, 30000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchLeads]);
+
   useEffect(() => {
     const handler = setTimeout(() => {
       setSearch(searchInput.trim());
@@ -231,14 +242,25 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
             </p>
           </div>
         </div>
-        <button
-          onClick={() => void handleExport()}
-          disabled={exporting}
-          className="flex items-center space-x-2 bg-primary text-white px-4 py-2 rounded-md text-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
-        >
-          {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          <span>{exporting ? 'Exportando…' : 'Exportar CSV'}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void fetchLeads()}
+            disabled={loading}
+            className="flex items-center space-x-2 border border-secondary text-secondary px-4 py-2 rounded-md text-sm hover:bg-secondary/10 transition-colors disabled:opacity-50"
+            title="Recargar los datos con las asignaciones y estados más recientes"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            <span>Sincronizar</span>
+          </button>
+          <button
+            onClick={() => void handleExport()}
+            disabled={exporting}
+            className="flex items-center space-x-2 bg-primary text-white px-4 py-2 rounded-md text-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            <span>{exporting ? 'Exportando…' : 'Exportar CSV'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Filtros */}
