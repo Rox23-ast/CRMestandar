@@ -4,7 +4,12 @@
 
 import { getRawCredentials } from '../../crm/services/credentialService';
 
-export const sendWhatsAppMessage = async (to: string, message: string): Promise<boolean> => {
+/**
+ * Envía un mensaje de texto por WhatsApp.
+ * Si se pasa contextMessageId (externalId del mensaje al que se responde),
+ * Meta lo muestra como cita/reply en el chat del cliente.
+ */
+export const sendWhatsAppMessage = async (to: string, message: string, contextMessageId?: string): Promise<boolean> => {
   const creds = await getRawCredentials();
   const token = creds.WA_API_TOKEN;
   const phoneNumberId = creds.WA_PHONE_NUMBER_ID;
@@ -21,6 +26,7 @@ export const sendWhatsAppMessage = async (to: string, message: string): Promise<
     to: to,
     type: 'text',
     text: { body: message },
+    ...(contextMessageId ? { context: { message_id: contextMessageId } } : {})
   };
 
   try {

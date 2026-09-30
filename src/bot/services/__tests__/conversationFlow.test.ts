@@ -383,6 +383,7 @@ describe('conversationFlow - cotizador integration', () => {
         'TEXT',
         undefined,
         undefined,
+        undefined,
         'Carlos Gómez'
       );
 

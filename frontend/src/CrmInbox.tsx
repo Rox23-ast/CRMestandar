@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, X, ContactRound } from 'lucide-react'
+import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, X, ContactRound, Reply } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -36,6 +36,7 @@ type Message = {
   body?: string | null
   mediaId?: string | null
   deliveryStatus: string
+  replyToMessageId?: string | null
   createdAt: string
 }
 
@@ -62,6 +63,58 @@ const priorityLabels: Record<string, string> = {
   NORMAL: 'Normal',
   LOW: 'Baja'
 }
+
+// Formatos que acepta la Media API de WhatsApp por tipo (los documentos
+// admiten cualquier MIME).
+const ALLOWED_ATTACHMENT_MIMES: Record<PendingAttachment['kind'], string[]> = {
+  image: ['image/jpeg', 'image/png'],
+  audio: ['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/amr', 'audio/ogg'],
+  video: ['video/mp4', 'video/3gp'],
+  document: []
+}
+
+const MIME_LABELS: Record<PendingAttachment['kind'], string> = {
+  image: 'JPG o PNG',
+  audio: 'AAC, MP4, MP3, AMR u OGG',
+  video: 'MP4 o 3GP',
+  document: 'cualquier tipo de archivo'
+}
+
+// MIME y tipo inferidos por extensión cuando el navegador no reporta el MIME
+// del archivo (común en Windows y en adjuntos de algunos orígenes).
+const EXTENSION_MIME: Record<string, string> = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv',
+  txt: 'text/plain',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  zip: 'application/zip',
+  rar: 'application/vnd.rar',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  amr: 'audio/amr',
+  ogg: 'audio/ogg',
+  mp4: 'video/mp4',
+  '3gp': 'video/3gp'
+}
+
+const EXTENSION_KIND: Record<string, PendingAttachment['kind']> = {
+  pdf: 'document', doc: 'document', docx: 'document', xls: 'document', xlsx: 'document',
+  csv: 'document', txt: 'document', ppt: 'document', pptx: 'document', zip: 'document', rar: 'document',
+  png: 'image', jpg: 'image', jpeg: 'image',
+  mp3: 'audio', m4a: 'audio', aac: 'audio', amr: 'audio', ogg: 'audio',
+  mp4: 'video', '3gp': 'video'
+}
+
+const ACCEPTED_ATTACHMENT_EXTENSIONS = Object.keys(EXTENSION_KIND).map((ext) => `.${ext}`).join(',')
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` })
 
@@ -137,6 +190,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [botEnabled, setBotEnabled] = useState(true)
   const [togglingBot, setTogglingBot] = useState(false)
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null)
+  const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
   const botConfigRef = useRef<Record<string, unknown> | null>(null)
@@ -279,6 +333,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const loadConversation = async (id: string) => {
     const response = await axios.get(`${API_URL}/api/crm/conversations/${id}`, { headers: authHeaders(token) })
     setSelected(response.data)
+    setReplyTo(null)
     setConversations((current) => current.map((conversation) => conversation.id === id ? { ...conversation, unread: false } : conversation))
   }
 
@@ -468,30 +523,46 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       return
     }
     if (!draft.trim()) return
+    const replyToMessageId = replyTo?.id ?? null
     try {
       await axios.post(
         `${API_URL}/api/crm/conversations/${selected.id}/messages`,
-        { body: draft },
+        { body: draft, ...(replyToMessageId ? { replyToMessageId } : {}) },
         { headers: authHeaders(token) }
       )
       setDraft('')
+      setReplyTo(null)
       await Promise.all([loadConversation(selected.id), loadConversations()])
     } catch {
       setError('No fue posible enviar el mensaje por WhatsApp.')
     }
   }
 
+  const fileExtension = (name: string) => name.split('.').pop()?.toLowerCase() ?? ''
+
   const kindOfFile = (file: File): PendingAttachment['kind'] => {
     if (file.type.startsWith('image/')) return 'image'
     if (file.type.startsWith('video/')) return 'video'
     if (file.type.startsWith('audio/')) return 'audio'
-    return 'document'
+    if (file.type && file.type !== 'application/octet-stream') return 'document'
+    return EXTENSION_KIND[fileExtension(file.name)] ?? 'document'
+  }
+
+  const mimeOfFile = (file: File): string => {
+    if (file.type && file.type !== 'application/octet-stream') return file.type
+    return EXTENSION_MIME[fileExtension(file.name)] ?? 'application/octet-stream'
   }
 
   const handleFilePick = (file: File | undefined) => {
     if (!file) return
     const kind = kindOfFile(file)
+    const mime = mimeOfFile(file)
     const mb = file.size / (1024 * 1024)
+    const allowed = ALLOWED_ATTACHMENT_MIMES[kind]
+    if (allowed.length > 0 && !allowed.includes(mime.toLowerCase())) {
+      setError(`WhatsApp no acepta ${mime} como ${kind === 'image' ? 'imagen' : kind}. Formatos válidos: ${MIME_LABELS[kind]}.`)
+      return
+    }
     if (kind === 'image' && mb > 5) {
       setError('Las imágenes deben pesar máximo 5 MB.')
       return
@@ -504,7 +575,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       setError('Los documentos deben pesar máximo 60 MB.')
       return
     }
-    setAttachment({ file, mime: file.type || 'application/octet-stream', kind })
+    setAttachment({ file, mime, kind })
   }
 
   const startRecording = async () => {
@@ -945,8 +1016,44 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                   )}
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-6 space-y-3">{selected.messages.map((message) => <div key={message.id} className={`max-w-[80%] rounded-lg p-3 text-sm ${message.direction === 'OUTBOUND' ? 'ml-auto bg-primary text-white' : 'bg-white border border-neutral-gray text-neutral-dark'}`}>{message.mediaId && message.type !== 'TEXT' ? <InboundMedia token={token} mediaId={message.mediaId} type={message.type} body={message.body} /> : <p>{message.body || `Archivo ${message.type.toLowerCase()} recibido.`}</p>}<p className="text-[10px] opacity-60 mt-1">{message.senderType} · {new Date(message.createdAt).toLocaleString()}</p></div>)}</div>
+              <div className="flex-1 overflow-y-auto p-6 space-y-3">{selected.messages.map((message) => {
+                const replied = message.replyToMessageId ? selected.messages.find((m) => m.id === message.replyToMessageId) : null
+                const senderLabel = (senderType: string) => senderType === 'CUSTOMER' ? 'Cliente' : senderType === 'BOT' ? 'Bot' : 'Agente'
+                return (
+                  <div key={message.id} className={`group relative max-w-[80%] rounded-lg p-3 text-sm ${message.direction === 'OUTBOUND' ? 'ml-auto bg-primary text-white' : 'bg-white border border-neutral-gray text-neutral-dark'}`}>
+                    {replied && (
+                      <div className={`mb-2 px-2 py-1 rounded border-l-2 text-[11px] ${message.direction === 'OUTBOUND' ? 'bg-white/10 border-white/60 text-white/85' : 'bg-neutral-light border-secondary text-neutral-darkgray'}`}>
+                        <span className="font-semibold">{senderLabel(replied.senderType)}</span>
+                        <span className="block truncate">{(replied.body || (replied.mediaId ? 'Adjunto' : 'Mensaje')).slice(0, 140)}</span>
+                      </div>
+                    )}
+                    {message.mediaId && message.type !== 'TEXT' ? <InboundMedia token={token} mediaId={message.mediaId} type={message.type} body={message.body} /> : <p>{message.body || `Archivo ${message.type.toLowerCase()} recibido.`}</p>}
+                    <p className="text-[10px] opacity-60 mt-1">{message.senderType} · {new Date(message.createdAt).toLocaleString()}</p>
+                    <button
+                      type="button"
+                      onClick={() => setReplyTo(replyTo?.id === message.id ? null : message)}
+                      title="Responder a este mensaje"
+                      className={`absolute -top-2 right-2 p-1 rounded-full shadow transition-opacity opacity-0 group-hover:opacity-100 ${replyTo?.id === message.id ? 'opacity-100 bg-accent-gold text-white' : 'bg-white text-neutral-darkgray hover:text-secondary'}`}
+                    >
+                      <Reply className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )
+              })}</div>
               <div className="bg-white border-t border-neutral-gray">
+                {replyTo && (
+                  <div className="px-4 pt-3 flex items-center gap-2 text-sm">
+                    <span className="bg-secondary/10 text-secondary px-2 py-1 rounded flex items-center gap-2 flex-1 min-w-0 border-l-2 border-accent-gold">
+                      <Reply className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="truncate">
+                        Respondiendo a <b>{replyTo.senderType === 'CUSTOMER' ? 'Cliente' : replyTo.senderType === 'BOT' ? 'Bot' : 'Agente'}</b>: {(replyTo.body || (replyTo.mediaId ? 'Adjunto' : 'Mensaje')).slice(0, 100)}
+                      </span>
+                    </span>
+                    <button type="button" onClick={() => setReplyTo(null)} className="text-neutral-darkgray hover:text-red-500 p-1" title="Cancelar respuesta">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
                 {attachment && !recording && (
                   <div className="px-4 pt-3 flex items-center gap-2 text-sm">
                     <span className="bg-secondary/10 text-secondary px-2 py-1 rounded flex items-center gap-2 flex-1 min-w-0">
@@ -970,6 +1077,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                   <input
                     ref={fileInputRef}
                     type="file"
+                    accept={ACCEPTED_ATTACHMENT_EXTENSIONS}
                     className="hidden"
                     onChange={(event) => handleFilePick(event.target.files?.[0])}
                   />
@@ -977,7 +1085,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     className="text-neutral-darkgray hover:text-secondary p-2 transition-colors"
-                    title="Adjuntar archivo (imagen, documento, video o audio)"
+                    title="Adjuntar archivo: PDF, JPG, PNG, Word, Excel, ZIP, MP3, MP4, etc."
                   >
                     <Paperclip className="w-5 h-5" />
                   </button>

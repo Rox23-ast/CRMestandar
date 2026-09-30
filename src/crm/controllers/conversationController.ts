@@ -25,7 +25,8 @@ const listQuerySchema = z.object({
 });
 
 const messageSchema = z.object({
-  body: z.string().trim().min(1).max(4096)
+  body: z.string().trim().min(1).max(4096),
+  replyToMessageId: z.string().uuid().optional()
 });
 
 const startConversationSchema = z.object({
@@ -49,6 +50,14 @@ const attachmentQuerySchema = z.object({
 const updateClientSchema = z.object({
   name: z.string().trim().min(1).max(120).nullable()
 });
+
+// MIME aceptados por la Media API de Meta por tipo de mensaje
+// (documentos: cualquier MIME, se validan aparte solo por tamaño).
+const WHATSAPP_ALLOWED_MEDIA_TYPES: Record<string, string[]> = {
+  image: ['image/jpeg', 'image/png'],
+  audio: ['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/amr', 'audio/ogg'],
+  video: ['video/mp4', 'video/3gp']
+};
 
 const statusConfigCreateSchema = z.object({
   label: z.string().trim().min(1).max(60),
@@ -496,7 +505,20 @@ export const sendAgentMessage = async (req: AuthenticatedRequest, res: Response)
   const client = await prisma.client.findUnique({ where: { id: conversation.clientId } });
   if (!client) return problem(res, 404, 'Conversation client not found');
 
-  const sent = await sendWhatsAppMessage(client.phone, parsed.data.body);
+  // Respuesta a un mensaje concreto: valida que pertenezca a esta conversación
+  // y usa su externalId para que WhatsApp lo muestre como cita.
+  let replyToMessageId: string | null = null;
+  let contextMessageId: string | undefined;
+  if (parsed.data.replyToMessageId) {
+    const replied = await prisma.message.findUnique({ where: { id: parsed.data.replyToMessageId } });
+    if (!replied || replied.conversationId !== conversation.id) {
+      return problem(res, 400, 'replyToMessageId no pertenece a esta conversación');
+    }
+    replyToMessageId = replied.id;
+    contextMessageId = replied.externalId ?? undefined;
+  }
+
+  const sent = await sendWhatsAppMessage(client.phone, parsed.data.body, contextMessageId);
   await prisma.conversation.update({
     where: { id: conversation.id },
     data: { status: 'HUMAN_ACTIVE' }
@@ -505,6 +527,7 @@ export const sendAgentMessage = async (req: AuthenticatedRequest, res: Response)
     conversationId: conversation.id,
     body: parsed.data.body,
     senderType: 'AGENT',
+    replyToMessageId,
     deliveryStatus: sent ? 'SENT' : 'FAILED'
   });
 
@@ -540,6 +563,18 @@ export const sendAgentAttachment = async (req: AuthenticatedRequest, res: Respon
   }
   if (parsed.data.type === 'document' && megabytes > 60) {
     return problem(res, 413, 'Documento demasiado grande', 'El límite de subida es de 60 MB.');
+  }
+
+  // Formatos que acepta la Media API de Meta por tipo. Los documentos
+  // admiten cualquier MIME, por eso no están en la lista.
+  const allowedMediaTypes = WHATSAPP_ALLOWED_MEDIA_TYPES[parsed.data.type];
+  if (allowedMediaTypes && !allowedMediaTypes.includes(parsed.data.mediaType.toLowerCase())) {
+    return problem(
+      res,
+      415,
+      'Formato no soportado',
+      `WhatsApp no acepta ${parsed.data.mediaType} como ${parsed.data.type}. Formatos válidos: ${allowedMediaTypes.join(', ')}.`
+    );
   }
 
   const conversation = await prisma.conversation.findUnique({

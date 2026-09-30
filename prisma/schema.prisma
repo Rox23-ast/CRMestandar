@@ -80,20 +80,24 @@ model Conversation {
 }
 
 model Message {
-  id             String       @id @default(uuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id])
-  externalId     String?      @unique
-  direction      String // INBOUND, OUTBOUND
-  senderType     String // CUSTOMER, BOT, AGENT
-  type           String       @default("TEXT") // TEXT, IMAGE, DOCUMENT, AUDIO, UNSUPPORTED
-  body           String?
-  mediaId        String?
-  deliveryStatus String       @default("RECEIVED") // RECEIVED, PENDING, SENT, DELIVERED, READ, FAILED
-  metadata       String       @default("{}")
-  createdAt      DateTime     @default(now())
+  id                String    @id @default(uuid())
+  conversationId    String
+  conversation      Conversation @relation(fields: [conversationId], references: [id])
+  externalId        String?   @unique
+  direction         String // INBOUND, OUTBOUND
+  senderType        String // CUSTOMER, BOT, AGENT
+  type              String    @default("TEXT") // TEXT, IMAGE, DOCUMENT, AUDIO, UNSUPPORTED
+  body              String?
+  mediaId           String?
+  deliveryStatus    String    @default("RECEIVED") // RECEIVED, PENDING, SENT, DELIVERED, READ, FAILED
+  metadata          String    @default("{}")
+  replyToMessageId  String?
+  replyToMessage    Message?  @relation("MessageReply", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies           Message[] @relation("MessageReply")
+  createdAt         DateTime  @default(now())
 
   @@index([conversationId, createdAt])
+  @@index([replyToMessageId])
 }
 
 model ConversationAssignment {

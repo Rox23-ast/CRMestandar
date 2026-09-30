@@ -40,6 +40,7 @@ export const processIncomingMessage = async (
   type = 'TEXT',
   mediaId?: string,
   adsContext?: { from?: string; referral?: Record<string, unknown> },
+  replyToExternalId?: string,
   contactName?: string
 ) => {
   try {
@@ -50,6 +51,7 @@ export const processIncomingMessage = async (
       mediaId,
       externalId,
       contactName,
+      replyToExternalId,
       metadata: adsContext ? { ads: adsContext } : undefined
     });
 

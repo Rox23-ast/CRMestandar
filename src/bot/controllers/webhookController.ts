@@ -60,10 +60,11 @@ export type InboundWhatsAppMessage = z.infer<typeof webhookMessageSchema>;
  */
 export const parseInboundMessage = (
   message: InboundWhatsAppMessage
-): { type: string; text?: string; mediaId?: string; adsContext?: { from?: string; referral?: Record<string, unknown> } } => {
+): { type: string; text?: string; mediaId?: string; replyToExternalId?: string; adsContext?: { from?: string; referral?: Record<string, unknown> } } => {
   let type = 'UNSUPPORTED';
   let text: string | undefined;
   let mediaId: string | undefined;
+  const replyToExternalId = message.context?.id;
 
   switch (message.type) {
     case 'text':
@@ -121,7 +122,7 @@ export const parseInboundMessage = (
     ? { from: message.context.from, referral: message.context.referral }
     : undefined;
 
-  return { type, text, mediaId, adsContext };
+  return { type, text, mediaId, replyToExternalId, adsContext };
 };
 
 const webhookBodySchema = z.object({
@@ -193,7 +194,7 @@ export const receiveMessage = async (req: RawBodyRequest, res: Response) => {
             const contactName = contactNameByWaId.get(from);
 
             console.log(`WhatsApp message received from ${from}: ${parsed.text ?? parsed.type}${parsed.adsContext ? ' [ADS]' : ''}`);
-            await processIncomingMessage(from, parsed.text, message.id, parsed.type, parsed.mediaId, parsed.adsContext, contactName);
+            await processIncomingMessage(from, parsed.text, message.id, parsed.type, parsed.mediaId, parsed.adsContext, parsed.replyToExternalId, contactName);
             }
           }
         }

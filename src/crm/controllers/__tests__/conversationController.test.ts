@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { statusSchema, listAssignableUsers, sendAgentAttachment, startConversation, getMedia, updateConversationClient, listConversations, getConversation } from '../conversationController';
+import { statusSchema, listAssignableUsers, sendAgentAttachment, sendAgentMessage, startConversation, getMedia, updateConversationClient, listConversations, getConversation } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
 import { recordOutboundMessage } from '../../services/conversationService';
 import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
@@ -9,6 +9,7 @@ jest.mock('../../../core/database/prisma', () => ({
     user: { findMany: jest.fn() },
     conversation: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), findMany: jest.fn(), count: jest.fn() },
     client: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+    message: { findUnique: jest.fn() },
     notification: { findMany: jest.fn(), updateMany: jest.fn() },
     conversationStatusConfig: { findMany: jest.fn() }
   }
@@ -30,6 +31,7 @@ const mockPrisma = prisma as unknown as {
   user: { findMany: jest.Mock };
   conversation: { findUnique: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock; findMany: jest.Mock; count: jest.Mock };
   client: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
+  message: { findUnique: jest.Mock };
   notification: { findMany: jest.Mock; updateMany: jest.Mock };
   conversationStatusConfig: { findMany: jest.Mock };
 };
@@ -237,6 +239,42 @@ describe('conversationController - sendAgentAttachment', () => {
     const res = makeRes();
 
     await sendAgentAttachment(makeReq({ query: { type: 'video', mediaType: 'video/mp4', filename: 'ok.mp4' }, body: buffer }), res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockUploadMedia).toHaveBeenCalled();
+  });
+
+  it('rejects unsupported image formats like GIF (415)', async () => {
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq({ query: { type: 'image', mediaType: 'image/gif', filename: 'anim.gif' } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(415);
+    expect(mockUploadMedia).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported video formats like MOV (415)', async () => {
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq({ query: { type: 'video', mediaType: 'video/quicktime', filename: 'clip.mov' } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(415);
+    expect(mockUploadMedia).not.toHaveBeenCalled();
+  });
+
+  it('accepts MP3 audio (audio/mpeg)', async () => {
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq({ query: { type: 'audio', mediaType: 'audio/mpeg', filename: 'nota.mp3' } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockUploadMedia).toHaveBeenCalled();
+  });
+
+  it('accepts documents with any MIME type (ZIP)', async () => {
+    const res = makeRes();
+
+    await sendAgentAttachment(makeReq({ query: { type: 'document', mediaType: 'application/zip', filename: 'archivos.zip' } }), res);
 
     expect(res.status).toHaveBeenCalledWith(201);
     expect(mockUploadMedia).toHaveBeenCalled();
@@ -549,5 +587,80 @@ describe('conversationController - getMedia', () => {
     await getMedia(makeReq({ id: 'no válido!!' }), res);
 
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe('conversationController - sendAgentMessage con respuesta a un mensaje', () => {
+  const CONVERSATION_ID = '9a4c5b6d-7e8f-4a1b-9c2d-3e4f5a6b7c8d';
+  const makeReq = (overrides: Record<string, unknown> = {}) => ({
+    user: { id: 'agent-1', role: 'AGENT' },
+    params: { id: CONVERSATION_ID },
+    body: { body: 'Hola' },
+    ...overrides
+  }) as never;
+  const makeRes = () => {
+    const res = {
+      status: jest.fn(),
+      json: jest.fn()
+    };
+    res.status.mockReturnValue(res);
+    res.json.mockReturnValue(res);
+    return res as unknown as Response & { status: jest.Mock; json: jest.Mock };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: CONVERSATION_ID, clientId: 'client-1', assignedUserId: 'agent-1' } as never);
+    mockPrisma.client.findUnique.mockResolvedValue({ id: 'client-1', phone: '573001112233' } as never);
+    mockPrisma.conversation.update.mockResolvedValue({} as never);
+    mockSendWhatsApp.mockResolvedValue(true);
+    mockRecordOutbound.mockResolvedValue({ id: 'msg-out-1' } as never);
+  });
+
+  it('envía con contexto de cita cuando se responde a un mensaje de la conversación', async () => {
+    mockPrisma.message.findUnique.mockResolvedValue({
+      id: 'a4c5b6d7-e8f9-4a1b-9c2d-3e4f5a6b7c8d',
+      conversationId: CONVERSATION_ID,
+      externalId: 'wamid.abc123'
+    } as never);
+
+    const res = makeRes();
+    await sendAgentMessage(makeReq({ body: { body: 'Claro que sí', replyToMessageId: 'a4c5b6d7-e8f9-4a1b-9c2d-3e4f5a6b7c8d' } }), res);
+
+    expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', 'Claro que sí', 'wamid.abc123');
+    expect(mockRecordOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID, body: 'Claro que sí', senderType: 'AGENT', replyToMessageId: 'a4c5b6d7-e8f9-4a1b-9c2d-3e4f5a6b7c8d' })
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('envía sin contexto cuando no hay replyToMessageId', async () => {
+    const res = makeRes();
+    await sendAgentMessage(makeReq(), res);
+
+    expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', 'Hola', undefined);
+    expect(mockRecordOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ replyToMessageId: null })
+    );
+  });
+
+  it('rechaza replyToMessageId de otra conversación con 400', async () => {
+    mockPrisma.message.findUnique.mockResolvedValue({ id: 'b4c5b6d7-e8f9-4a1b-9c2d-3e4f5a6b7c8d', conversationId: 'otra-conversacion' } as never);
+
+    const res = makeRes();
+    await sendAgentMessage(makeReq({ body: { body: 'Hola', replyToMessageId: 'b4c5b6d7-e8f9-4a1b-9c2d-3e4f5a6b7c8d' } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockSendWhatsApp).not.toHaveBeenCalled();
+  });
+
+  it('rechaza replyToMessageId inexistente con 400', async () => {
+    mockPrisma.message.findUnique.mockResolvedValue(null as never);
+
+    const res = makeRes();
+    await sendAgentMessage(makeReq({ body: { body: 'Hola', replyToMessageId: 'c4c5b6d7-e8f9-4a1b-9c2d-3e4f5a6b7c8d' } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockSendWhatsApp).not.toHaveBeenCalled();
   });
 });

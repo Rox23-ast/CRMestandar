@@ -239,10 +239,19 @@ export const recordInboundMessage = async (input: {
   externalId?: string;
   contactName?: string;
   metadata?: Record<string, unknown>;
+  // externalId del mensaje al que el cliente está respondiendo (contexto de
+  // WhatsApp). Se resuelve al id local del mensaje para pintar la cita.
+  replyToExternalId?: string;
 }) => {
   if (input.externalId) {
     const existing = await prisma.message.findUnique({ where: { externalId: input.externalId } });
     if (existing) return { conversationId: existing.conversationId, duplicate: true, isNew: false };
+  }
+
+  let replyToMessageId: string | null = null;
+  if (input.replyToExternalId) {
+    const replied = await prisma.message.findUnique({ where: { externalId: input.replyToExternalId } });
+    if (replied) replyToMessageId = replied.id;
   }
 
   const { conversation, isNew } = await createOrGetConversation(input.phone, new Date(), input.contactName);
@@ -255,6 +264,7 @@ export const recordInboundMessage = async (input: {
       type: input.type ?? 'TEXT',
       body: input.body,
       mediaId: input.mediaId,
+      replyToMessageId,
       metadata: input.metadata ? JSON.stringify(input.metadata) : undefined,
       deliveryStatus: 'RECEIVED'
     }
@@ -308,6 +318,7 @@ export const recordOutboundMessage = async (input: {
   deliveryStatus: string;
   type?: string;
   mediaId?: string;
+  replyToMessageId?: string | null;
 }) => {
   const message = await prisma.message.create({
     data: {
@@ -317,6 +328,7 @@ export const recordOutboundMessage = async (input: {
       type: input.type ?? 'TEXT',
       body: input.body,
       mediaId: input.mediaId,
+      replyToMessageId: input.replyToMessageId ?? null,
       deliveryStatus: input.deliveryStatus
     }
   });
