@@ -676,7 +676,9 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     ? quickReplies.filter((reply) => reply.label.toLowerCase().includes(quickFilter))
     : quickReplies
   const insertQuickReply = (reply: { label: string; text: string }) => {
-    setDraft(draft.slice(0, slashIndex) + reply.text)
+    const clientName = selected?.client.name
+    const filled = clientName ? reply.text.replace(/\[Nombre\]/g, clientName) : reply.text
+    setDraft(draft.slice(0, slashIndex) + filled)
   }
 
   return (
