@@ -889,7 +889,12 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                     {conversation.unread && (
                       <span className="w-2.5 h-2.5 bg-red-500 rounded-full flex-shrink-0" title="Mensajes sin leer" />
                     )}
-                    <strong className="truncate">{conversation.client.name || conversation.client.phone}</strong>
+                    <span className="truncate min-w-0">
+                      <strong className="block truncate">{conversation.client.name || conversation.client.phone}</strong>
+                      {conversation.client.name && (
+                        <span className="block text-xs text-neutral-darkgray truncate font-normal">{conversation.client.phone}</span>
+                      )}
+                    </span>
                   </span>
                   <span className="text-[11px] text-neutral-darkgray flex items-center gap-1 flex-shrink-0">
                     {conversation.unread && (
@@ -945,8 +950,11 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
           ) : (
             <>
               <div className="bg-white border-b border-neutral-gray p-5 flex flex-wrap justify-between gap-4">
-                <div>
+                <div className="min-w-0">
                   <h2 className="font-cormorant text-2xl text-primary">{selected.client.name || selected.client.phone}</h2>
+                  {selected.client.name && (
+                    <p className="text-sm text-neutral-darkgray">{selected.client.phone}</p>
+                  )}
                   <p className="text-sm text-neutral-darkgray">{statusLabels[selected.status] || selected.status} · {priorityLabels[selected.priority]} · Asignada a: {selected.assignedUser?.name || 'Sin asignar'}</p>
                   {selected.businessStatus && (
                     <div className="mt-1 flex items-center gap-2">
@@ -960,11 +968,11 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                     </div>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={openClientModal}
-                    className="border border-accent-gold text-accent-gold px-3 py-2 rounded text-sm flex items-center gap-2 hover:bg-accent-gold/10 transition-colors"
+                    className="h-9 border border-accent-gold text-accent-gold px-3 rounded text-sm flex items-center gap-2 whitespace-nowrap hover:bg-accent-gold/10 transition-colors"
                     title="Registrar el nombre del cliente"
                   >
                     <ContactRound className="w-4 h-4" />
@@ -975,7 +983,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                       <button
                         type="button"
                         onClick={() => setAssignMenuOpen((open) => !open)}
-                        className="border border-secondary text-secondary px-3 py-2 rounded text-sm flex items-center gap-2 hover:bg-secondary/10 transition-colors"
+                        className="h-9 border border-secondary text-secondary px-3 rounded text-sm flex items-center gap-2 whitespace-nowrap hover:bg-secondary/10 transition-colors"
                       >
                         <UserPlus className="w-4 h-4" />
                         <span>Asignar</span>
@@ -1003,13 +1011,13 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                     </div>
                   )}
                   {selected.status !== 'HUMAN_ACTIVE' && (
-                    <button onClick={() => void handleTake()} className="bg-primary text-white px-3 py-2 rounded text-sm flex items-center gap-2">
+                    <button onClick={() => void handleTake()} className="h-9 bg-primary text-white px-3 rounded text-sm flex items-center gap-2 whitespace-nowrap">
                       <UserCheck className="w-4 h-4" />Tomar conversación
                     </button>
                   )}
                   {selected.status === 'HUMAN_ACTIVE' && (
-                    <button onClick={() => void handleReturnToBot()} className="border border-primary text-primary px-3 py-2 rounded text-sm">
-                      Devolver al bot
+                    <button onClick={() => void handleReturnToBot()} className="h-9 border border-primary text-primary px-3 rounded text-sm flex items-center gap-2 whitespace-nowrap hover:bg-primary/10 transition-colors">
+                      <Bot className="w-4 h-4" />Devolver al bot
                     </button>
                   )}
                   {statusConfigs.filter(s => s.isActive).length > 0 && (
@@ -1017,7 +1025,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                       <button
                         type="button"
                         onClick={() => setStatusMenuOpen((open) => !open)}
-                        className="border border-neutral-gray text-neutral-dark px-3 py-2 rounded text-sm flex items-center gap-1 hover:bg-neutral-light/50 transition-colors"
+                        className="h-9 border border-neutral-gray text-neutral-dark px-3 rounded text-sm flex items-center gap-1 whitespace-nowrap hover:bg-neutral-light/50 transition-colors"
                       >
                         <ChevronDown className="w-4 h-4" />
                         <span>Cambiar estado</span>
