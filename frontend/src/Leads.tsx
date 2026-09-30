@@ -137,7 +137,9 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
     try {
       const response = await axios.get<LeadsResponse>(`${API_URL}/api/crm/leads`, {
         headers: authHeaders(),
-        params: buildParams(),
+        // El parámetro _ evita la revalidación 304 del navegador: Sincronizar
+        // siempre pide datos frescos al servidor.
+        params: { ...buildParams(), _: Date.now() },
       });
 
       setLeads(response.data.data);
