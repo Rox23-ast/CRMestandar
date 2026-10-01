@@ -5,6 +5,7 @@ export interface ApiCredentials {
   WA_API_TOKEN: string;
   WA_VERIFY_TOKEN: string;
   WA_PHONE_NUMBER_ID: string;
+  WA_WABA_ID: string;
   WA_APP_SECRET: string;
   OPENAI_API_KEY: string;
   ANTHROPIC_API_KEY: string;
@@ -17,6 +18,7 @@ export interface MaskedCredentials {
   WA_API_TOKEN: string;
   WA_VERIFY_TOKEN: string;
   WA_PHONE_NUMBER_ID: string;
+  WA_WABA_ID: string;
   WA_APP_SECRET: string;
   OPENAI_API_KEY: string;
   ANTHROPIC_API_KEY: string;
@@ -36,6 +38,7 @@ function getEnvCredentials(): Partial<ApiCredentials> {
     WA_API_TOKEN: process.env.WA_API_TOKEN ?? '',
     WA_VERIFY_TOKEN: process.env.WA_VERIFY_TOKEN ?? '',
     WA_PHONE_NUMBER_ID: process.env.WA_PHONE_NUMBER_ID ?? '',
+    WA_WABA_ID: process.env.WA_WABA_ID ?? '',
     WA_APP_SECRET: process.env.WA_APP_SECRET ?? '',
     OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
@@ -53,6 +56,7 @@ export async function getCredentials(): Promise<MaskedCredentials> {
       WA_API_TOKEN: maskValue(envCreds.WA_API_TOKEN ?? ''),
       WA_VERIFY_TOKEN: maskValue(envCreds.WA_VERIFY_TOKEN ?? ''),
       WA_PHONE_NUMBER_ID: maskValue(envCreds.WA_PHONE_NUMBER_ID ?? ''),
+      WA_WABA_ID: maskValue(envCreds.WA_WABA_ID ?? ''),
       WA_APP_SECRET: maskValue(envCreds.WA_APP_SECRET ?? ''),
       OPENAI_API_KEY: maskValue(envCreds.OPENAI_API_KEY ?? ''),
       ANTHROPIC_API_KEY: maskValue(envCreds.ANTHROPIC_API_KEY ?? ''),
@@ -66,8 +70,9 @@ export async function getCredentials(): Promise<MaskedCredentials> {
   return {
     WA_API_TOKEN: maskValue(creds.WA_API_TOKEN ?? ''),
     WA_VERIFY_TOKEN: maskValue(creds.WA_VERIFY_TOKEN ?? ''),
-    WA_PHONE_NUMBER_ID: maskValue(creds.WA_PHONE_NUMBER_ID ?? ''),
-    WA_APP_SECRET: maskValue(creds.WA_APP_SECRET ?? ''),
+      WA_PHONE_NUMBER_ID: maskValue(creds.WA_PHONE_NUMBER_ID ?? ''),
+      WA_WABA_ID: maskValue(creds.WA_WABA_ID ?? ''),
+      WA_APP_SECRET: maskValue(creds.WA_APP_SECRET ?? ''),
     OPENAI_API_KEY: maskValue(creds.OPENAI_API_KEY ?? ''),
     ANTHROPIC_API_KEY: maskValue(creds.ANTHROPIC_API_KEY ?? ''),
     GEMINI_API_KEY: maskValue(creds.GEMINI_API_KEY ?? ''),
@@ -84,6 +89,7 @@ export async function getRawCredentials(): Promise<ApiCredentials> {
       WA_API_TOKEN: envCreds.WA_API_TOKEN ?? '',
       WA_VERIFY_TOKEN: envCreds.WA_VERIFY_TOKEN ?? '',
       WA_PHONE_NUMBER_ID: envCreds.WA_PHONE_NUMBER_ID ?? '',
+      WA_WABA_ID: envCreds.WA_WABA_ID ?? '',
       WA_APP_SECRET: envCreds.WA_APP_SECRET ?? '',
       OPENAI_API_KEY: envCreds.OPENAI_API_KEY ?? '',
       ANTHROPIC_API_KEY: envCreds.ANTHROPIC_API_KEY ?? '',
@@ -99,6 +105,7 @@ export async function getRawCredentials(): Promise<ApiCredentials> {
     WA_API_TOKEN: stored.WA_API_TOKEN ?? '',
     WA_VERIFY_TOKEN: stored.WA_VERIFY_TOKEN ?? '',
     WA_PHONE_NUMBER_ID: stored.WA_PHONE_NUMBER_ID ?? '',
+    WA_WABA_ID: stored.WA_WABA_ID ?? '',
     WA_APP_SECRET: stored.WA_APP_SECRET ?? '',
     OPENAI_API_KEY: stored.OPENAI_API_KEY ?? '',
     ANTHROPIC_API_KEY: stored.ANTHROPIC_API_KEY ?? '',

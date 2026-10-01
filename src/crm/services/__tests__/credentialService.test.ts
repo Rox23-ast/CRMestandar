@@ -93,6 +93,7 @@ describe('credentialService', () => {
         WA_API_TOKEN: 'stored_wa_token',
         WA_VERIFY_TOKEN: 'stored_verify_token',
         WA_PHONE_NUMBER_ID: '987654321',
+        WA_WABA_ID: '123456789',
         WA_APP_SECRET: 'stored_app_secret',
         OPENAI_API_KEY: 'sk-stored_openai_key',
         ANTHROPIC_API_KEY: 'sk-ant-stored_key',

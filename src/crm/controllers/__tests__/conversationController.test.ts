@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { statusSchema, listAssignableUsers, sendAgentAttachment, sendAgentMessage, startConversation, getMedia, updateConversationClient, listConversations, getConversation, updateMessage, deleteMessage } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
 import { recordOutboundMessage } from '../../services/conversationService';
-import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
+import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, sendWhatsAppTemplate, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
 
 jest.mock('../../../core/database/prisma', () => ({
   prisma: {
@@ -11,7 +11,8 @@ jest.mock('../../../core/database/prisma', () => ({
     client: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
     notification: { findMany: jest.fn(), updateMany: jest.fn() },
     conversationStatusConfig: { findMany: jest.fn() },
-    message: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn() }
+    message: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn() },
+    botConfig: { findFirst: jest.fn() }
   }
 }));
 
@@ -23,6 +24,7 @@ jest.mock('../../../bot/services/whatsappService', () => ({
   uploadWhatsAppMedia: jest.fn(),
   sendWhatsAppMedia: jest.fn(),
   sendWhatsAppMessage: jest.fn(),
+  sendWhatsAppTemplate: jest.fn(),
   getWhatsAppMedia: jest.fn(),
   downloadWhatsAppMedia: jest.fn()
 }));
@@ -34,11 +36,13 @@ const mockPrisma = prisma as unknown as {
   notification: { findMany: jest.Mock; updateMany: jest.Mock };
   conversationStatusConfig: { findMany: jest.Mock };
   message: { findUnique: jest.Mock; update: jest.Mock; delete: jest.Mock };
+  botConfig: { findFirst: jest.Mock };
 };
 const mockRecordOutbound = recordOutboundMessage as jest.Mock;
 const mockUploadMedia = uploadWhatsAppMedia as jest.Mock;
 const mockSendMedia = sendWhatsAppMedia as jest.Mock;
 const mockSendWhatsApp = sendWhatsAppMessage as jest.Mock;
+const mockSendTemplate = sendWhatsAppTemplate as jest.Mock;
 const mockGetMedia = getWhatsAppMedia as jest.Mock;
 const mockDownloadMedia = downloadWhatsAppMedia as jest.Mock;
 
@@ -512,6 +516,7 @@ describe('conversationController - startConversation', () => {
     mockPrisma.conversation.findFirst.mockResolvedValue(null as never);
     mockPrisma.conversation.create.mockResolvedValue({ id: 'conv-new', clientId: 'client-1', status: 'HUMAN_ACTIVE' } as never);
     mockPrisma.conversation.update.mockResolvedValue({} as never);
+    mockPrisma.botConfig.findFirst.mockResolvedValue(null as never);
     mockSendWhatsApp.mockResolvedValue(true as never);
     mockRecordOutbound.mockResolvedValue({ id: 'msg-1' } as never);
   });
@@ -559,6 +564,57 @@ describe('conversationController - startConversation', () => {
         detail: expect.stringContaining('plantilla')
       })
     );
+  });
+
+  it('uses the configured template on first contact with a brand-new number', async () => {
+    mockPrisma.botConfig.findFirst.mockResolvedValue({
+      outreachTemplateName: 'primer_contacto',
+      outreachTemplateLanguage: 'es',
+      outreachTemplateVariables: 3
+    } as never);
+    mockSendTemplate.mockResolvedValue(true as never);
+
+    const res = makeRes();
+    await startConversation(makeReq(), res);
+
+    expect(mockSendTemplate).toHaveBeenCalledWith(
+      '573001112233',
+      'primer_contacto',
+      'es',
+      ['Hola, soy de Mudanzas Chico', '', '']
+    );
+    expect(mockSendWhatsApp).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('falls back to free text when the template fails', async () => {
+    mockPrisma.botConfig.findFirst.mockResolvedValue({
+      outreachTemplateName: 'primer_contacto',
+      outreachTemplateLanguage: 'es',
+      outreachTemplateVariables: 1
+    } as never);
+    mockSendTemplate.mockResolvedValue(false as never);
+    mockSendWhatsApp.mockResolvedValue(true as never);
+
+    const res = makeRes();
+    await startConversation(makeReq(), res);
+
+    expect(mockSendTemplate).toHaveBeenCalled();
+    expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', 'Hola, soy de Mudanzas Chico');
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('uses free text when the number already has a conversation', async () => {
+    mockPrisma.conversation.findFirst.mockResolvedValue({ id: 'conv-existing', clientId: 'client-1', status: 'BOT_ACTIVE', assignedUserId: null } as never);
+    mockPrisma.conversation.update.mockResolvedValue({ id: 'conv-existing', status: 'HUMAN_ACTIVE' } as never);
+    mockSendWhatsApp.mockResolvedValue(true as never);
+
+    const res = makeRes();
+    await startConversation(makeReq(), res);
+
+    expect(mockSendTemplate).not.toHaveBeenCalled();
+    expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', 'Hola, soy de Mudanzas Chico');
+    expect(res.status).toHaveBeenCalledWith(201);
   });
 });
 

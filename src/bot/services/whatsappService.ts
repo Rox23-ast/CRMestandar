@@ -106,6 +106,125 @@ export const sendWhatsAppDocument = async (to: string, pdfUrl: string, caption?:
 export type WhatsAppMediaType = 'image' | 'audio' | 'video' | 'document';
 
 /**
+ * Envía un mensaje usando una plantilla de WhatsApp Business aprobada.
+ * Requerido para contactar números que nunca han escrito al negocio
+ * (la ventana de 24h exige plantilla para el primer mensaje saliente).
+ * `parameters` rellena las variables del cuerpo en orden ({{1}}, {{2}}, …).
+ */
+export const sendWhatsAppTemplate = async (
+  to: string,
+  templateName: string,
+  language: string,
+  parameters: string[]
+): Promise<boolean> => {
+  const creds = await getRawCredentials();
+  const token = creds.WA_API_TOKEN;
+  const phoneNumberId = creds.WA_PHONE_NUMBER_ID;
+
+  if (!token || !phoneNumberId) {
+    console.error('Faltan las credenciales de WhatsApp (WA_API_TOKEN o WA_PHONE_NUMBER_ID)');
+    return false;
+  }
+
+  const url = `https://graph.facebook.com/v17.0/${phoneNumberId}/messages`;
+  const data = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: language },
+      ...(parameters.length > 0
+        ? {
+            components: [
+              {
+                type: 'body',
+                parameters: parameters.map((value) => ({ type: 'text', text: value }))
+              }
+            ]
+          }
+        : {})
+    }
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Error enviando plantilla de WhatsApp:', JSON.stringify(errorData));
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Error de red al enviar plantilla de WhatsApp:', error);
+    return false;
+  }
+};
+
+/**
+ * Lista las plantillas de la cuenta de WhatsApp Business (WABA) vía Graph API.
+ * Devuelve nombre, idioma, estado, categoría y cantidad de variables del cuerpo.
+ */
+export const listWhatsAppTemplates = async (): Promise<
+  { name: string; language: string; status: string; category: string; variableCount: number }[]
+> => {
+  const creds = await getRawCredentials();
+  const token = creds.WA_API_TOKEN;
+  const wabaId = creds.WA_WABA_ID;
+
+  if (!token || !wabaId) {
+    console.error('Faltan credenciales para listar plantillas (WA_API_TOKEN o WA_WABA_ID)');
+    return [];
+  }
+
+  const url = `https://graph.facebook.com/v17.0/${wabaId}/message_templates?fields=name,status,category,language,components`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error listando plantillas de WhatsApp:', errorText.slice(0, 300));
+      return [];
+    }
+
+    const payload = await response.json() as {
+      data?: {
+        name: string;
+        status: string;
+        category: string;
+        language: string;
+        components?: { type: string; text?: string }[];
+      }[]
+    };
+
+    return (payload.data ?? []).map((template) => {
+      const body = template.components?.find((component) => component.type === 'BODY')?.text ?? '';
+      const variableCount = (body.match(/\{\{\d+\}\}/g) ?? []).length;
+      return {
+        name: template.name,
+        language: template.language,
+        status: template.status,
+        category: template.category,
+        variableCount
+      };
+    });
+  } catch (error) {
+    console.error('Error de red listando plantillas de WhatsApp:', error);
+    return [];
+  }
+};
+
+/**
  * Sube un archivo a la Media API de Meta y devuelve el media id.
  * El contenido debe ser binario (multipart) con su MIME correcto;
  * Meta rechaza formatos no soportados (p. ej. audio/webm).

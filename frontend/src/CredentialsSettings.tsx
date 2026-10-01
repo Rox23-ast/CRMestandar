@@ -8,6 +8,7 @@ interface ApiCredentials {
   WA_API_TOKEN: string
   WA_VERIFY_TOKEN: string
   WA_PHONE_NUMBER_ID: string
+  WA_WABA_ID: string
   WA_APP_SECRET: string
   OPENAI_API_KEY: string
   ANTHROPIC_API_KEY: string
@@ -41,6 +42,12 @@ const CREDENTIAL_FIELDS: CredentialField[] = [
     label: 'WhatsApp Phone Number ID',
     placeholder: '123456789012345',
     description: 'ID del número de teléfono de WhatsApp Business'
+  },
+  {
+    key: 'WA_WABA_ID',
+    label: 'WhatsApp Business Account ID (WABA)',
+    placeholder: '123456789012345',
+    description: 'ID de la cuenta de WhatsApp Business (WhatsApp Manager → Configuración). Se usa para listar las plantillas de mensajes.'
   },
   {
     key: 'WA_APP_SECRET',
@@ -85,6 +92,7 @@ export default function CredentialsSettings({ userRole, token }: { userRole: str
     WA_API_TOKEN: '',
     WA_VERIFY_TOKEN: '',
     WA_PHONE_NUMBER_ID: '',
+    WA_WABA_ID: '',
     WA_APP_SECRET: '',
     OPENAI_API_KEY: '',
     ANTHROPIC_API_KEY: '',
@@ -98,6 +106,7 @@ export default function CredentialsSettings({ userRole, token }: { userRole: str
     WA_API_TOKEN: false,
     WA_VERIFY_TOKEN: false,
     WA_PHONE_NUMBER_ID: false,
+    WA_WABA_ID: false,
     WA_APP_SECRET: false,
     OPENAI_API_KEY: false,
     ANTHROPIC_API_KEY: false,
@@ -111,6 +120,7 @@ export default function CredentialsSettings({ userRole, token }: { userRole: str
     WA_API_TOKEN: false,
     WA_VERIFY_TOKEN: false,
     WA_PHONE_NUMBER_ID: false,
+    WA_WABA_ID: false,
     WA_APP_SECRET: false,
     OPENAI_API_KEY: false,
     ANTHROPIC_API_KEY: false,
@@ -134,6 +144,7 @@ export default function CredentialsSettings({ userRole, token }: { userRole: str
         WA_API_TOKEN: false,
         WA_VERIFY_TOKEN: false,
         WA_PHONE_NUMBER_ID: false,
+        WA_WABA_ID: false,
         WA_APP_SECRET: false,
         OPENAI_API_KEY: false,
         ANTHROPIC_API_KEY: false,

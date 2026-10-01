@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../core/database/prisma';
+import { listWhatsAppTemplates } from '../services/whatsappService';
 
 const customRuleSchema = z.object({
   id: z.string(),
@@ -15,7 +16,10 @@ const botConfigSchema = z.object({
   aiPersonalityPrompt: z.string().trim().min(1).max(5000),
   limitations: z.string().trim().max(5000),
   customRules: z.array(customRuleSchema),
-  botEnabled: z.boolean().optional()
+  botEnabled: z.boolean().optional(),
+  outreachTemplateName: z.string().trim().max(200).nullable().optional(),
+  outreachTemplateLanguage: z.string().trim().max(10).optional(),
+  outreachTemplateVariables: z.number().int().min(1).max(20).optional()
 });
 
 const problem = (res: Response, status: number, title: string) =>
@@ -35,6 +39,9 @@ export const getBotConfig = async (req: Request, res: Response) => {
         limitations: 'No dar precios finales sin confirmación de volumen por un agente.',
         customRules: "[]",
         botEnabled: true,
+        outreachTemplateName: null,
+        outreachTemplateLanguage: 'es',
+        outreachTemplateVariables: 1,
         updatedAt: new Date()
       };
     }
@@ -57,10 +64,20 @@ export const updateBotConfig = async (req: Request, res: Response) => {
   }
 
   try {
-    const { greetingMessage, awayMessage, aiPersonalityPrompt, limitations, customRules, botEnabled } = parsed.data;
-    
+    const {
+      greetingMessage,
+      awayMessage,
+      aiPersonalityPrompt,
+      limitations,
+      customRules,
+      botEnabled,
+      outreachTemplateName,
+      outreachTemplateLanguage,
+      outreachTemplateVariables
+    } = parsed.data;
+
     const existingConfig = await prisma.botConfig.findFirst();
-    
+
     let config;
     if (existingConfig) {
       config = await prisma.botConfig.update({
@@ -71,7 +88,10 @@ export const updateBotConfig = async (req: Request, res: Response) => {
           aiPersonalityPrompt,
           limitations,
           customRules: customRules ? JSON.stringify(customRules) : undefined,
-          botEnabled: botEnabled === undefined ? undefined : botEnabled
+          botEnabled: botEnabled === undefined ? undefined : botEnabled,
+          outreachTemplateName: outreachTemplateName === undefined ? undefined : outreachTemplateName,
+          outreachTemplateLanguage: outreachTemplateLanguage === undefined ? undefined : outreachTemplateLanguage,
+          outreachTemplateVariables: outreachTemplateVariables === undefined ? undefined : outreachTemplateVariables
         }
       });
     } else {
@@ -82,7 +102,10 @@ export const updateBotConfig = async (req: Request, res: Response) => {
           aiPersonalityPrompt,
           limitations,
           customRules: customRules ? JSON.stringify(customRules) : "[]",
-          botEnabled: botEnabled ?? true
+          botEnabled: botEnabled ?? true,
+          outreachTemplateName: outreachTemplateName ?? null,
+          outreachTemplateLanguage: outreachTemplateLanguage ?? 'es',
+          outreachTemplateVariables: outreachTemplateVariables ?? 1
         }
       });
     }
@@ -95,5 +118,20 @@ export const updateBotConfig = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error updating bot config:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * GET /api/bot/templates
+ * Lista las plantillas aprobadas/pendientes de la cuenta de WhatsApp Business
+ * para poder elegir cuál usar al iniciar contacto con números nuevos.
+ */
+export const listTemplates = async (_req: Request, res: Response) => {
+  try {
+    const templates = await listWhatsAppTemplates();
+    return res.json(templates);
+  } catch (error) {
+    console.error('Error listing WhatsApp templates:', error);
+    return res.status(502).json({ error: 'No fue posible consultar las plantillas de WhatsApp' });
   }
 };

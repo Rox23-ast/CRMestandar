@@ -41,6 +41,17 @@ interface BotConfig {
   aiPersonalityPrompt: string
   limitations: string
   customRules: CustomRule[]
+  outreachTemplateName: string | null
+  outreachTemplateLanguage: string
+  outreachTemplateVariables: number
+}
+
+interface WhatsAppTemplate {
+  name: string
+  language: string
+  status: string
+  category: string
+  variableCount: number
 }
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
@@ -56,8 +67,14 @@ function App() {
     awayMessage: '',
     aiPersonalityPrompt: '',
     limitations: '',
-    customRules: []
+    customRules: [],
+    outreachTemplateName: null,
+    outreachTemplateLanguage: 'es',
+    outreachTemplateVariables: 1
   })
+  const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [templatesError, setTemplatesError] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{show: boolean, message: string}>({show: false, message: ''})
@@ -103,6 +120,9 @@ function App() {
         const data = response.data
         // Asegurarnos que customRules sea un array
         if (!data.customRules) data.customRules = []
+        if (data.outreachTemplateName === undefined) data.outreachTemplateName = null
+        if (!data.outreachTemplateLanguage) data.outreachTemplateLanguage = 'es'
+        if (!data.outreachTemplateVariables) data.outreachTemplateVariables = 1
         setConfig(data)
       } catch (error) {
         console.error('Error fetching config:', error)
@@ -175,9 +195,37 @@ function App() {
     }
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     const { name, value } = e.target
-    setConfig(prev => ({ ...prev, [name]: value }))
+    setConfig(prev => ({
+      ...prev,
+      [name]: name === 'outreachTemplateVariables' ? Number(value) || 1 : value
+    }))
+  }
+
+  const handleLoadTemplates = async () => {
+    setTemplatesLoading(true)
+    setTemplatesError('')
+    try {
+      const response = await axios.get(`${API_URL}/api/bot/templates`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      setTemplates(response.data)
+    } catch (error: any) {
+      console.error('Error loading templates:', error)
+      setTemplatesError(error?.response?.data?.error ?? 'No fue posible cargar las plantillas. Revisa el WABA ID en Configuración de APIs.')
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }
+
+  const pickTemplate = (template: WhatsAppTemplate) => {
+    setConfig(prev => ({
+      ...prev,
+      outreachTemplateName: template.name,
+      outreachTemplateLanguage: template.language,
+      outreachTemplateVariables: Math.max(1, template.variableCount || 1)
+    }))
   }
 
   const getHeaderTitle = () => {
@@ -495,6 +543,79 @@ function App() {
                       className="w-full p-4 border border-neutral-gray rounded-md focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-neutral-light/30 resize-none font-medium"
                     />
                   </label>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-neutral-gray">
+                  <div>
+                    <span className="text-neutral-dark font-semibold mb-2 block">Plantilla de primer contacto (WhatsApp)</span>
+                    <span className="text-sm text-neutral-darkgray mb-2 block">Cuando un comercial inicia un chat con un número que nunca ha escrito, WhatsApp exige una plantilla aprobada. El mensaje que escriba el comercial se asigna a la variable 1 de la plantilla; el resto quedan vacías.</span>
+                  </div>
+                  <div className="flex flex-col md:flex-row gap-4">
+                    <label className="flex-1 block">
+                      <span className="text-sm font-medium text-neutral-dark mb-1 block">Nombre de la plantilla</span>
+                      <input
+                        type="text"
+                        name="outreachTemplateName"
+                        value={config.outreachTemplateName ?? ''}
+                        onChange={handleChange}
+                        placeholder="Ej. primer_contacto"
+                        className="w-full p-3 border border-neutral-gray rounded-md focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white text-sm"
+                      />
+                    </label>
+                    <label className="block w-32">
+                      <span className="text-sm font-medium text-neutral-dark mb-1 block">Idioma</span>
+                      <input
+                        type="text"
+                        name="outreachTemplateLanguage"
+                        value={config.outreachTemplateLanguage}
+                        onChange={handleChange}
+                        placeholder="es"
+                        className="w-full p-3 border border-neutral-gray rounded-md focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white text-sm"
+                      />
+                    </label>
+                    <label className="block w-32">
+                      <span className="text-sm font-medium text-neutral-dark mb-1 block">Nº variables</span>
+                      <input
+                        type="number"
+                        name="outreachTemplateVariables"
+                        value={config.outreachTemplateVariables}
+                        onChange={handleChange}
+                        min="1"
+                        max="20"
+                        className="w-full p-3 border border-neutral-gray rounded-md focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white text-sm"
+                      />
+                    </label>
+                  </div>
+                  <div className="bg-white border border-neutral-gray rounded-md p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-medium text-neutral-dark">Plantillas de tu cuenta de Meta</span>
+                      <button
+                        type="button"
+                        onClick={() => void handleLoadTemplates()}
+                        disabled={templatesLoading}
+                        className="text-sm border border-secondary text-secondary px-3 py-1.5 rounded-md hover:bg-secondary/10 transition-colors disabled:opacity-50"
+                      >
+                        {templatesLoading ? 'Cargando…' : 'Cargar plantillas'}
+                      </button>
+                    </div>
+                    {templatesError && <p className="text-xs text-red-600 mb-2">{templatesError}</p>}
+                    {templates.length === 0 && !templatesLoading && !templatesError && (
+                      <p className="text-xs text-neutral-darkgray">Pulsa "Cargar plantillas" para ver las plantillas aprobadas de tu cuenta (requiere el WABA ID en Configuración de APIs).</p>
+                    )}
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                      {templates.map((template) => (
+                        <button
+                          key={`${template.name}-${template.language}`}
+                          type="button"
+                          onClick={() => pickTemplate(template)}
+                          className={`w-full text-left px-3 py-2 rounded border text-sm transition-colors ${config.outreachTemplateName === template.name && config.outreachTemplateLanguage === template.language ? 'border-accent-gold bg-accent-gold/10' : 'border-neutral-gray hover:bg-neutral-light/50'}`}
+                        >
+                          <span className="font-medium text-primary">{template.name}</span>
+                          <span className="text-neutral-darkgray"> · {template.language} · {template.category} · {template.status}{template.variableCount > 0 ? ` · ${template.variableCount} variable${template.variableCount !== 1 ? 's' : ''}` : ''}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

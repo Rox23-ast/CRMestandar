@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { AuthenticatedRequest } from '../../core/auth/authMiddleware';
 import { prisma } from '../../core/database/prisma';
-import { sendWhatsAppMessage, sendWhatsAppDocument, uploadWhatsAppMedia, sendWhatsAppMedia, getWhatsAppMedia, downloadWhatsAppMedia, WhatsAppMediaType } from '../../bot/services/whatsappService';
+import { sendWhatsAppMessage, sendWhatsAppDocument, uploadWhatsAppMedia, sendWhatsAppMedia, getWhatsAppMedia, downloadWhatsAppMedia, sendWhatsAppTemplate, WhatsAppMediaType } from '../../bot/services/whatsappService';
 import {
   DEFAULT_WEEKLY_SCHEDULE,
   manuallyAssignConversation,
@@ -704,6 +704,7 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
   let conversation = await prisma.conversation.findFirst({
     where: { clientId: client.id, status: { in: ['NEW', 'BOT_ACTIVE', 'HUMAN_ACTIVE', 'WAITING_CUSTOMER'] } }
   });
+  const isFirstContact = !conversation;
   if (!conversation) {
     conversation = await prisma.conversation.create({
       data: { clientId: client.id, status: 'HUMAN_ACTIVE', assignedUserId: req.user.id }
@@ -715,7 +716,51 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
     });
   }
 
-  const sent = await sendWhatsAppMessage(phone, parsed.data.body);
+  let sent = false;
+  let templateUsed = false;
+
+  // Primer contacto con un número que nunca ha escrito: WhatsApp exige una
+  // plantilla aprobada (ventana de 24h). Si hay plantilla configurada se envía
+  // por plantilla; si no, se intenta texto libre y se informa si Meta rechaza.
+  if (isFirstContact) {
+    const config = await prisma.botConfig.findFirst();
+    if (config?.outreachTemplateName) {
+      const variableCount = config.outreachTemplateVariables ?? 1;
+      const parameters = [parsed.data.body, ...Array(Math.max(0, variableCount - 1)).fill('')];
+      sent = await sendWhatsAppTemplate(
+        phone,
+        config.outreachTemplateName,
+        config.outreachTemplateLanguage ?? 'es',
+        parameters
+      );
+      templateUsed = true;
+      if (!sent) {
+        // La plantilla falló (nombre mal, rechazada, etc.): intentar texto libre.
+        sent = await sendWhatsAppMessage(phone, parsed.data.body);
+        templateUsed = false;
+      }
+    } else {
+      sent = await sendWhatsAppMessage(phone, parsed.data.body);
+    }
+  } else {
+    sent = await sendWhatsAppMessage(phone, parsed.data.body);
+    if (!sent && isFirstContact === false) {
+      // Texto libre rechazado fuera de ventana: reintentar con plantilla si existe.
+      const config = await prisma.botConfig.findFirst();
+      if (config?.outreachTemplateName) {
+        const variableCount = config.outreachTemplateVariables ?? 1;
+        const parameters = [parsed.data.body, ...Array(Math.max(0, variableCount - 1)).fill('')];
+        sent = await sendWhatsAppTemplate(
+          phone,
+          config.outreachTemplateName,
+          config.outreachTemplateLanguage ?? 'es',
+          parameters
+        );
+        templateUsed = true;
+      }
+    }
+  }
+
   const message = await recordOutboundMessage({
     conversationId: conversation.id,
     body: parsed.data.body,
@@ -728,7 +773,9 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
       res,
       502,
       'WhatsApp message could not be sent',
-      'Si el número nunca ha escrito al negocio, WhatsApp exige una plantilla aprobada (ventana de 24h).'
+      templateUsed
+        ? 'La plantilla configurada no pudo enviarse: revisa su nombre, idioma o estado en WhatsApp Manager.'
+        : 'Si el número nunca ha escrito al negocio, WhatsApp exige una plantilla aprobada (ventana de 24h).'
     );
   }
   return res.status(201).json({ conversation, message });
