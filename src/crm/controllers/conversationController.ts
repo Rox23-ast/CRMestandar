@@ -30,6 +30,12 @@ const messageSchema = z.object({
   replyToMessageId: z.string().uuid().optional()
 });
 
+const templateMessageSchema = z.object({
+  templateName: z.string().trim().min(1).max(200),
+  language: z.string().trim().min(1).max(10),
+  parameters: z.array(z.string().max(1000)).max(20).optional()
+});
+
 const updateMessageSchema = z.object({
   body: z.string().trim().min(1).max(4096)
 });
@@ -564,6 +570,55 @@ export const sendAgentMessage = async (req: AuthenticatedRequest, res: Response)
   });
 
   if (!sent) return problem(res, 502, 'WhatsApp message could not be sent');
+  return res.status(201).json(message);
+};
+
+/**
+ * POST /api/crm/conversations/:id/template
+ * Envía una plantilla de WhatsApp elegida desde la bandeja, con sus variables
+ * rellenas por el agente. Útil para mensajes de marketing/recordatorios fuera
+ * de la ventana de 24h y para primer contacto.
+ */
+export const sendAgentTemplate = async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return problem(res, 401, 'Authentication required');
+  const parsedId = parseConversationId(req.params.id);
+  if (!parsedId.success) return problem(res, 400, 'Conversation ID is invalid');
+  const conversationId = parsedId.data;
+  const parsed = templateMessageSchema.safeParse(req.body);
+  if (!parsed.success) return problem(res, 400, 'Template data is invalid');
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId }
+  });
+  if (!conversation) return problem(res, 404, 'Conversation not found');
+  if (!canSeeAllConversations(req.user.role) && conversation.assignedUserId !== req.user.id) {
+    return problem(res, 403, 'Conversation is not assigned to this user');
+  }
+
+  const client = await prisma.client.findUnique({ where: { id: conversation.clientId } });
+  if (!client) return problem(res, 404, 'Conversation client not found');
+
+  const parameters = parsed.data.parameters ?? [];
+  const sent = await sendWhatsAppTemplate(
+    client.phone,
+    parsed.data.templateName,
+    parsed.data.language,
+    parameters
+  );
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { status: 'HUMAN_ACTIVE' }
+  });
+  const message = await recordOutboundMessage({
+    conversationId: conversation.id,
+    body: parameters[0] || `Plantilla ${parsed.data.templateName}`,
+    senderType: 'AGENT',
+    deliveryStatus: sent ? 'SENT' : 'FAILED'
+  });
+
+  if (!sent) {
+    return problem(res, 502, 'WhatsApp template could not be sent', 'Revisa el nombre, idioma o estado de la plantilla en WhatsApp Manager.');
+  }
   return res.status(201).json(message);
 };
 

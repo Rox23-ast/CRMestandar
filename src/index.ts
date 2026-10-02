@@ -159,7 +159,7 @@ app.get('/health', (req: Request, res: Response) => {
 // Bot configuration endpoints.
 app.get('/api/bot/config', requireCrmUser, requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), getBotConfig);
 app.put('/api/bot/config', requireCrmUser, requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), updateBotConfig);
-app.get('/api/bot/templates', requireCrmUser, requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), listTemplates);
+app.get('/api/bot/templates', requireCrmUser, listTemplates);
 
 // CRM inbox and real-time notification endpoints.
 app.use('/api/crm', crmRouter);

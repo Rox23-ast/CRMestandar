@@ -34,6 +34,7 @@ import {
   saveBusinessHourException,
   sendAgentAttachment,
   sendAgentMessage,
+  sendAgentTemplate,
   startConversation,
   streamCrmEvents,
   updateBusinessHours,
@@ -80,6 +81,7 @@ crmRouter.patch('/conversations/:id/status', updateConversationStatus);
 crmRouter.patch('/messages/:id', updateMessage);
 crmRouter.delete('/messages/:id', deleteMessage);
 crmRouter.post('/conversations/:id/messages', sendAgentMessage);
+crmRouter.post('/conversations/:id/template', sendAgentTemplate);
 crmRouter.post(
   '/conversations/:id/attachments',
   express.raw({ type: () => true, limit: '60mb' }),

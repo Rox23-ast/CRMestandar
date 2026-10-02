@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { statusSchema, listAssignableUsers, sendAgentAttachment, sendAgentMessage, startConversation, getMedia, updateConversationClient, listConversations, getConversation, updateMessage, deleteMessage } from '../conversationController';
+import { statusSchema, listAssignableUsers, sendAgentAttachment, sendAgentMessage, sendAgentTemplate, startConversation, getMedia, updateConversationClient, listConversations, getConversation, updateMessage, deleteMessage } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
 import { recordOutboundMessage } from '../../services/conversationService';
 import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, sendWhatsAppTemplate, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
@@ -654,6 +654,65 @@ describe('conversationController - startConversation', () => {
     expect(mockSendTemplate).not.toHaveBeenCalled();
     expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', 'Hola, soy de Mudanzas Chico');
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+});
+
+describe('conversationController - sendAgentTemplate', () => {
+  const CONVERSATION_ID = '7d3e8f1a-2b4c-4d5e-9f0a-1b2c3d4e5f60';
+  const makeReq = (overrides: Record<string, unknown> = {}) => ({
+    user: { id: 'agent-1', role: 'AGENT' },
+    params: { id: CONVERSATION_ID },
+    body: { templateName: 'saludo', language: 'es', parameters: ['Hola', 'Carlos'] },
+    ...overrides
+  }) as never;
+  const makeRes = () => {
+    const res = {
+      status: jest.fn(),
+      json: jest.fn()
+    };
+    res.status.mockReturnValue(res);
+    res.json.mockReturnValue(res);
+    return res as unknown as Response & { status: jest.Mock; json: jest.Mock };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: CONVERSATION_ID, clientId: 'client-1', assignedUserId: 'agent-1' } as never);
+    mockPrisma.conversation.update.mockResolvedValue({} as never);
+    mockPrisma.client.findUnique.mockResolvedValue({ id: 'client-1', phone: '573001112233' } as never);
+    mockSendTemplate.mockResolvedValue(true as never);
+    mockRecordOutbound.mockResolvedValue({ id: 'msg-1' } as never);
+  });
+
+  it('sends the template with its parameters and records the message', async () => {
+    const res = makeRes();
+    await sendAgentTemplate(makeReq(), res);
+
+    expect(mockSendTemplate).toHaveBeenCalledWith('573001112233', 'saludo', 'es', ['Hola', 'Carlos']);
+    expect(mockRecordOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({ senderType: 'AGENT', deliveryStatus: 'SENT', body: 'Hola' })
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('returns 502 when Meta rejects the template', async () => {
+    mockSendTemplate.mockResolvedValue(false as never);
+    const res = makeRes();
+    await sendAgentTemplate(makeReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.stringContaining('WhatsApp Manager') })
+    );
+  });
+
+  it('returns 403 for an agent on another conversation', async () => {
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: CONVERSATION_ID, clientId: 'client-1', assignedUserId: 'other-agent' } as never);
+    const res = makeRes();
+    await sendAgentTemplate(makeReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockSendTemplate).not.toHaveBeenCalled();
   });
 });
 

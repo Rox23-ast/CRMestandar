@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, ChevronLeft, ChevronRight, X, ContactRound, Reply, Pencil, Trash2, Download } from 'lucide-react'
+import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, ChevronLeft, ChevronRight, X, ContactRound, Reply, Pencil, Trash2, Download, LayoutTemplate } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -247,6 +247,11 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
+  const [templatePanelOpen, setTemplatePanelOpen] = useState(false)
+  const [inboxTemplates, setInboxTemplates] = useState<{ name: string; language: string; status: string; category: string; variableCount: number }[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [selectedTemplate, setSelectedTemplate] = useState<{ name: string; language: string; variableCount: number } | null>(null)
+  const [templateParams, setTemplateParams] = useState<string[]>([])
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
   const botConfigRef = useRef<Record<string, unknown> | null>(null)
@@ -748,6 +753,56 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       await loadConversation(selected.id)
     } catch {
       setError('No fue posible eliminar el mensaje.')
+    }
+  }
+
+  const toggleTemplatePanel = async () => {
+    if (templatePanelOpen) {
+      setTemplatePanelOpen(false)
+      setSelectedTemplate(null)
+      setTemplateParams([])
+      return
+    }
+    setTemplatePanelOpen(true)
+    if (inboxTemplates.length === 0) await loadInboxTemplates()
+  }
+
+  const loadInboxTemplates = async () => {
+    setTemplatesLoading(true)
+    try {
+      const response = await axios.get(`${API_URL}/api/bot/templates`, { headers: authHeaders(token) })
+      setInboxTemplates(response.data)
+    } catch {
+      setError('No fue posible cargar las plantillas de WhatsApp.')
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }
+
+  const pickInboxTemplate = (template: { name: string; language: string; variableCount: number }) => {
+    setSelectedTemplate(template)
+    setTemplateParams(Array(template.variableCount || 0).fill(''))
+  }
+
+  const sendInboxTemplate = async () => {
+    if (!selected || !selectedTemplate) return
+    try {
+      await axios.post(
+        `${API_URL}/api/crm/conversations/${selected.id}/template`,
+        {
+          templateName: selectedTemplate.name,
+          language: selectedTemplate.language,
+          parameters: templateParams
+        },
+        { headers: authHeaders(token) }
+      )
+      setTemplatePanelOpen(false)
+      setSelectedTemplate(null)
+      setTemplateParams([])
+      await Promise.all([loadConversation(selected.id), loadConversations(conversationPageRef.current)])
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setError(detail ? `No fue posible enviar la plantilla: ${detail}` : 'No fue posible enviar la plantilla.')
     }
   }
 
@@ -1281,6 +1336,89 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                     Grabando nota de voz… {recordSeconds}s
                   </div>
                 )}
+                {templatePanelOpen && (
+                  <div className="px-4 pt-3 space-y-2 border-t border-neutral-gray">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-neutral-dark flex items-center gap-2">
+                        <LayoutTemplate className="w-4 h-4 text-secondary" />
+                        Plantillas de WhatsApp
+                      </p>
+                      <button type="button" onClick={() => void toggleTemplatePanel()} className="text-neutral-darkgray hover:text-red-500 p-1" title="Cerrar">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {templatesLoading ? (
+                      <p className="text-xs text-neutral-darkgray">Cargando plantillas…</p>
+                    ) : inboxTemplates.length === 0 ? (
+                      <p className="text-xs text-neutral-darkgray">No hay plantillas cargadas. Revisa el WABA ID en Configuración de APIs.</p>
+                    ) : !selectedTemplate ? (
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {inboxTemplates.map((template) => (
+                          <button
+                            key={`${template.name}-${template.language}`}
+                            type="button"
+                            onClick={() => pickInboxTemplate(template)}
+                            className="w-full text-left px-3 py-2 rounded border border-neutral-gray text-sm hover:bg-neutral-light/50 transition-colors"
+                          >
+                            <span className="font-medium text-primary">{template.name}</span>
+                            <span className="text-neutral-darkgray"> · {template.language} · {template.status}{template.variableCount > 0 ? ` · ${template.variableCount} variable${template.variableCount !== 1 ? 's' : ''}` : ' · sin variables'}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-2 border border-neutral-gray rounded-md p-3 bg-neutral-light/30">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-primary">{selectedTemplate.name} <span className="text-xs text-neutral-darkgray">({selectedTemplate.language})</span></p>
+                          <button type="button" onClick={() => { setSelectedTemplate(null); setTemplateParams([]) }} className="text-xs text-neutral-darkgray hover:text-secondary">Cambiar</button>
+                        </div>
+                        {selectedTemplate.variableCount > 0 ? (
+                          <>
+                            {templateParams.map((value, index) => (
+                              <input
+                                key={index}
+                                type="text"
+                                value={value}
+                                onChange={(event) => {
+                                  const next = [...templateParams]
+                                  next[index] = event.target.value
+                                  setTemplateParams(next)
+                                }}
+                                placeholder={`Variable {{${index + 1}}}`}
+                                className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+                              />
+                            ))}
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void sendInboxTemplate()}
+                                disabled={templateParams.some((value) => !value.trim())}
+                                className="flex-1 bg-accent-gold text-white px-3 py-1.5 rounded-md text-sm disabled:opacity-50"
+                              >
+                                Enviar plantilla
+                              </button>
+                              <button type="button" onClick={() => { setSelectedTemplate(null); setTemplateParams([]) }} className="border border-neutral-gray text-neutral-dark px-3 py-1.5 rounded-md text-sm">
+                                Cancelar
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void sendInboxTemplate()}
+                              className="flex-1 bg-accent-gold text-white px-3 py-1.5 rounded-md text-sm"
+                            >
+                              Enviar plantilla
+                            </button>
+                            <button type="button" onClick={() => { setSelectedTemplate(null); setTemplateParams([]) }} className="border border-neutral-gray text-neutral-dark px-3 py-1.5 rounded-md text-sm">
+                              Cancelar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <form ref={composerFormRef} onSubmit={handleSend} className="p-4 flex gap-3 items-end">
                   <input
                     ref={fileInputRef}
@@ -1296,6 +1434,14 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                     title="Adjuntar archivo: PDF, JPG, PNG, Word, Excel, ZIP, MP3, MP4, etc."
                   >
                     <Paperclip className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void toggleTemplatePanel()}
+                    className={`p-2 transition-colors ${templatePanelOpen ? 'text-secondary bg-secondary/10 rounded' : 'text-neutral-darkgray hover:text-secondary'}`}
+                    title="Enviar plantilla de WhatsApp"
+                  >
+                    <LayoutTemplate className="w-5 h-5" />
                   </button>
                   {recording ? (
                     <button
