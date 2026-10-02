@@ -7,6 +7,7 @@ const credentialsSchema = z.object({
   WA_API_TOKEN: z.string().max(500).optional(),
   WA_VERIFY_TOKEN: z.string().max(500).optional(),
   WA_PHONE_NUMBER_ID: z.string().max(100).optional(),
+  WA_WABA_ID: z.string().max(100).optional(),
   WA_APP_SECRET: z.string().max(500).optional(),
   OPENAI_API_KEY: z.string().max(500).optional(),
   ANTHROPIC_API_KEY: z.string().max(500).optional(),
