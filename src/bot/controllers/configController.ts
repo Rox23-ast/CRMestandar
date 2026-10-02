@@ -129,6 +129,8 @@ export const updateBotConfig = async (req: Request, res: Response) => {
 export const listTemplates = async (_req: Request, res: Response) => {
   try {
     const templates = await listWhatsAppTemplates();
+    // Sin cache HTTP: el botón "Cargar plantillas" siempre consulta a Meta.
+    res.set('Cache-Control', 'no-store');
     return res.json(templates);
   } catch (error) {
     console.error('Error listing WhatsApp templates:', error);
