@@ -21,7 +21,8 @@ const listQuerySchema = z.object({
   businessStatus: z.string().optional(),
   source: z.enum(['ADS', 'ORGANIC']).optional(),
   search: z.string().trim().min(1).max(100).optional(),
-  includeFinal: z.coerce.boolean().optional()
+  includeFinal: z.coerce.boolean().optional(),
+  unreadOnly: z.coerce.boolean().optional()
 });
 
 const messageSchema = z.object({
@@ -186,6 +187,29 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
   });
   const unreadIds = [...new Set(unreadRows.map((row) => row.conversationId as string))];
   const unreadIdSet = new Set(unreadIds);
+
+  // Filtro "solo no leídas" (disponible para todos los roles): restringe la
+  // bandeja a las conversaciones con notificaciones sin leer de este usuario.
+  if (parsed.data.unreadOnly) {
+    const total = await prisma.conversation.count({
+      where: { ...where, id: { in: unreadIds } }
+    });
+    const conversations = unreadIds.length > 0
+      ? await prisma.conversation.findMany({
+          where: { ...where, id: { in: unreadIds } },
+          include,
+          orderBy,
+          skip: (page - 1) * pageSize,
+          take: pageSize
+        })
+      : [];
+
+    return res.json({
+      data: conversations.map((conversation) => ({ ...conversation, unread: true })),
+      unreadCount: total,
+      pagination: { page, pageSize, total }
+    });
+  }
 
   // Las no leídas solo se anteponen en la página 1; en las siguientes, el
   // skip descuenta las no leídas ya mostradas para no repetir ni saltar filas.
@@ -790,6 +814,18 @@ export const getMedia = async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return problem(res, 401, 'Authentication required');
   const parsedId = mediaIdSchema.safeParse(req.params.id);
   if (!parsedId.success) return problem(res, 400, 'Media ID is invalid');
+
+  // Todos los roles autenticados pueden descargar media, pero un agente solo
+  // el de conversaciones a las que tiene acceso (asignadas o cola de marketing).
+  const message = await prisma.message.findFirst({ where: { mediaId: parsedId.data } });
+  if (message) {
+    const conversation = await prisma.conversation.findUnique({ where: { id: message.conversationId } });
+    if (!conversation) return problem(res, 404, 'Conversation not found');
+    const canAccessQueue = !conversation.assignedUserId && conversation.assignedRole === 'MARKETING_DIRECTOR';
+    if (!canSeeAllConversations(req.user.role) && conversation.assignedUserId !== req.user.id && !canAccessQueue) {
+      return problem(res, 403, 'Insufficient permissions');
+    }
+  }
 
   const media = await getWhatsAppMedia(parsedId.data);
   if (!media) return problem(res, 404, 'Media not found or WhatsApp credentials unavailable');

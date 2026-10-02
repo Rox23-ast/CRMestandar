@@ -11,7 +11,7 @@ jest.mock('../../../core/database/prisma', () => ({
     client: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
     notification: { findMany: jest.fn(), updateMany: jest.fn() },
     conversationStatusConfig: { findMany: jest.fn() },
-    message: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn() },
+    message: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn(), delete: jest.fn() },
     botConfig: { findFirst: jest.fn() }
   }
 }));
@@ -35,7 +35,7 @@ const mockPrisma = prisma as unknown as {
   client: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
   notification: { findMany: jest.Mock; updateMany: jest.Mock };
   conversationStatusConfig: { findMany: jest.Mock };
-  message: { findUnique: jest.Mock; update: jest.Mock; delete: jest.Mock };
+  message: { findUnique: jest.Mock; findFirst: jest.Mock; update: jest.Mock; delete: jest.Mock };
   botConfig: { findFirst: jest.Mock };
 };
 const mockRecordOutbound = recordOutboundMessage as jest.Mock;
@@ -454,6 +454,25 @@ describe('conversationController - listConversations', () => {
       expect.objectContaining({ unreadCount: 0 })
     );
   });
+
+  it('returns only unread conversations when unreadOnly is set', async () => {
+    mockPrisma.notification.findMany.mockResolvedValue([{ conversationId: 'conv-unread' }] as never);
+    mockPrisma.conversation.findMany.mockResolvedValueOnce([{ id: 'conv-unread' }] as never);
+    mockPrisma.conversation.count.mockResolvedValue(1 as never);
+
+    const res = makeRes();
+    await listConversations(makeReq({ query: { page: '1', pageSize: '50', includeFinal: 'true', unreadOnly: 'true' } }), res);
+
+    expect(mockPrisma.conversation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: { in: ['conv-unread'] } }), skip: 0, take: 50 })
+    );
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ id: 'conv-unread', unread: true })],
+        unreadCount: 1
+      })
+    );
+  });
 });
 
 describe('conversationController - getConversation', () => {
@@ -619,8 +638,8 @@ describe('conversationController - startConversation', () => {
 });
 
 describe('conversationController - getMedia', () => {
-  const makeReq = (params: Record<string, unknown> = {}) => ({
-    user: { id: 'agent-1', role: 'AGENT' },
+  const makeReq = (params: Record<string, unknown> = {}, user: Record<string, unknown> = { id: 'agent-1', role: 'AGENT' }) => ({
+    user,
     params,
     ...{}
   }) as never;
@@ -667,6 +686,29 @@ describe('conversationController - getMedia', () => {
     await getMedia(makeReq({ id: 'no válido!!' }), res);
 
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('blocks agents from downloading media of conversations they cannot see (403)', async () => {
+    mockPrisma.message.findFirst.mockResolvedValue({ mediaId: '1022489778123456', conversationId: 'conv-ajena' } as never);
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: 'conv-ajena', assignedUserId: 'otro-agente' } as never);
+
+    const res = makeRes();
+    await getMedia(makeReq({ id: '1022489778123456' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockGetMedia).not.toHaveBeenCalled();
+  });
+
+  it('allows admins to download media of any conversation', async () => {
+    mockPrisma.message.findFirst.mockResolvedValue({ mediaId: '1022489778123456', conversationId: 'conv-ajena' } as never);
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: 'conv-ajena', assignedUserId: 'otro-agente' } as never);
+    mockGetMedia.mockResolvedValue({ url: 'https://cdn.meta.example/1', mimeType: 'image/jpeg' } as never);
+    mockDownloadMedia.mockResolvedValue(Buffer.from('JPEGDATA') as never);
+
+    const res = makeRes();
+    await getMedia(makeReq({ id: '1022489778123456' }, { id: 'admin-1', role: 'ADMIN' }), res);
+
+    expect(res.set).toHaveBeenCalledWith('Content-Type', 'image/jpeg');
   });
 });
 
