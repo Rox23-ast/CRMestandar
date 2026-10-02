@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import axios from 'axios'
-import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, ChevronLeft, ChevronRight, X, ContactRound, Reply, Pencil, Trash2 } from 'lucide-react'
+import { MessageCircle, Send, UserCheck, UserPlus, Bot, Paperclip, Mic, Square, Zap, ChevronDown, ChevronLeft, ChevronRight, X, ContactRound, Reply, Pencil, Trash2, Download } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -166,9 +166,40 @@ const InboundMedia = ({ token, mediaId, type, body }: { token: string; mediaId: 
     )
   }
   if (!url) return <p>Cargando {type.toLowerCase()}…</p>
-  if (type === 'IMAGE' || type === 'STICKER') return <img src={url} alt={body || 'imagen'} className="max-w-full rounded" />
-  if (type === 'VIDEO') return <video src={url} controls className="max-w-full rounded" />
-  if (type === 'AUDIO') return <audio src={url} controls className="w-full" />
+  const downloadLink = (label: string) => (
+    <a
+      href={url}
+      download
+      className="inline-flex items-center gap-1 text-xs underline text-secondary mt-1.5"
+    >
+      <Download className="w-3.5 h-3.5" />
+      <span>{label}</span>
+    </a>
+  )
+  if (type === 'IMAGE' || type === 'STICKER') {
+    return (
+      <div>
+        <img src={url} alt={body || 'imagen'} className="max-w-full rounded" />
+        {downloadLink('Descargar imagen')}
+      </div>
+    )
+  }
+  if (type === 'VIDEO') {
+    return (
+      <div>
+        <video src={url} controls className="max-w-full rounded" />
+        {downloadLink('Descargar video')}
+      </div>
+    )
+  }
+  if (type === 'AUDIO') {
+    return (
+      <div>
+        <audio src={url} controls className="w-full" />
+        {downloadLink('Descargar audio')}
+      </div>
+    )
+  }
   if (type === 'DOCUMENT') {
     return (
       <div>
@@ -193,6 +224,8 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterSource, setFilterSource] = useState<string>('')
   const [filterIncludeFinal, setFilterIncludeFinal] = useState(false)
+  const [filterAssignedUser, setFilterAssignedUser] = useState('')
+  const [filterUnread, setFilterUnread] = useState(false)
   const [searchInput, setSearchInput] = useState('')
   const [filterSearch, setFilterSearch] = useState('')
   const [startOpen, setStartOpen] = useState(false)
@@ -327,12 +360,24 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     }
   }
 
+  // Ref con los filtros actuales: el polling y el SSE ejecutan versiones
+  // viejas de loadConversations (closure), así que leen de aquí para no
+  // perder los filtros activos con el paso del tiempo.
+  const filtersRef = useRef({ filterStatus: '', filterSource: '', filterSearch: '', filterIncludeFinal: false, filterAssignedUser: '', filterUnread: false })
+
+  useEffect(() => {
+    filtersRef.current = { filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread }
+  }, [filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread])
+
   const loadConversations = async (pageToLoad = 1) => {
+    const { filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread } = filtersRef.current
     const params = new URLSearchParams()
     if (filterStatus) params.set('businessStatus', filterStatus)
     if (filterSource) params.set('source', filterSource)
     if (filterSearch) params.set('search', filterSearch)
     if (filterIncludeFinal) params.set('includeFinal', 'true')
+    if (filterAssignedUser) params.set('assignedUserId', filterAssignedUser)
+    if (filterUnread) params.set('unreadOnly', 'true')
     params.set('page', String(pageToLoad))
     params.set('pageSize', '500')
     const response = await axios.get(`${API_URL}/api/crm/conversations?${params.toString()}`, { headers: authHeaders(token) })
@@ -425,7 +470,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     if (!token) return
     void loadConversations(1).catch(() => undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, filterStatus, filterSource, filterSearch, filterIncludeFinal])
+  }, [token, filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread])
 
   // Debounce del buscador para no disparar una petición por tecla.
   useEffect(() => {
@@ -764,6 +809,15 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                 />
                 <span>Ver finalizadas</span>
               </label>
+              <label className="flex items-center space-x-2 text-sm text-neutral-darkgray cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={filterUnread}
+                  onChange={(e) => setFilterUnread(e.target.checked)}
+                  className="w-4 h-4 text-secondary border-neutral-gray rounded focus:ring-secondary/50"
+                />
+                <span>Solo no leídas</span>
+              </label>
             </div>
             <div className="flex items-center space-x-2">
               <label className="text-xs text-neutral-darkgray w-20">Estado gestión:</label>
@@ -810,6 +864,30 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                 </button>
               )}
             </div>
+            {canAssign && (
+              <div className="flex items-center space-x-2">
+                <label className="text-xs text-neutral-darkgray w-20">Asesor:</label>
+                <select
+                  value={filterAssignedUser}
+                  onChange={(e) => setFilterAssignedUser(e.target.value)}
+                  className="flex-1 border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+                >
+                  <option value="">Todos</option>
+                  {assignableUsers.map((user) => (
+                    <option key={user.id} value={user.id}>{user.name}</option>
+                  ))}
+                </select>
+                {filterAssignedUser && (
+                  <button
+                    onClick={() => setFilterAssignedUser('')}
+                    className="p-1.5 text-neutral-darkgray hover:text-red-500 transition-colors"
+                    title="Limpiar filtro"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
             {startOpen ? (
               <form onSubmit={handleStartChat} className="space-y-2 pt-1">
                 <input
