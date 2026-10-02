@@ -19,7 +19,7 @@ const botConfigSchema = z.object({
   botEnabled: z.boolean().optional(),
   outreachTemplateName: z.string().trim().max(200).nullable().optional(),
   outreachTemplateLanguage: z.string().trim().max(10).optional(),
-  outreachTemplateVariables: z.number().int().min(1).max(20).optional()
+  outreachTemplateVariables: z.number().int().min(0).max(20).optional()
 });
 
 const problem = (res: Response, status: number, title: string) =>

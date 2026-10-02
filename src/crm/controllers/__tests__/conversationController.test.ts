@@ -623,6 +623,26 @@ describe('conversationController - startConversation', () => {
     expect(res.status).toHaveBeenCalledWith(201);
   });
 
+  it('sends the template without parameters when it has no variables', async () => {
+    mockPrisma.botConfig.findFirst.mockResolvedValue({
+      outreachTemplateName: 'saludo_fijo',
+      outreachTemplateLanguage: 'es',
+      outreachTemplateVariables: 0
+    } as never);
+    mockSendTemplate.mockResolvedValue(true as never);
+
+    const res = makeRes();
+    await startConversation(makeReq(), res);
+
+    expect(mockSendTemplate).toHaveBeenCalledWith(
+      '573001112233',
+      'saludo_fijo',
+      'es',
+      []
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
   it('uses free text when the number already has a conversation', async () => {
     mockPrisma.conversation.findFirst.mockResolvedValue({ id: 'conv-existing', clientId: 'client-1', status: 'BOT_ACTIVE', assignedUserId: null } as never);
     mockPrisma.conversation.update.mockResolvedValue({ id: 'conv-existing', status: 'HUMAN_ACTIVE' } as never);

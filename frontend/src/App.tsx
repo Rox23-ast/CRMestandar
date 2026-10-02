@@ -199,7 +199,9 @@ function App() {
     const { name, value } = e.target
     setConfig(prev => ({
       ...prev,
-      [name]: name === 'outreachTemplateVariables' ? Number(value) || 1 : value
+      [name]: name === 'outreachTemplateVariables'
+        ? (Number.isNaN(Number(value)) ? 0 : Number(value))
+        : value
     }))
   }
 
@@ -224,7 +226,7 @@ function App() {
       ...prev,
       outreachTemplateName: template.name,
       outreachTemplateLanguage: template.language,
-      outreachTemplateVariables: Math.max(1, template.variableCount || 1)
+      outreachTemplateVariables: template.variableCount || 0
     }))
   }
 
@@ -580,12 +582,17 @@ function App() {
                         name="outreachTemplateVariables"
                         value={config.outreachTemplateVariables}
                         onChange={handleChange}
-                        min="1"
+                        min="0"
                         max="20"
                         className="w-full p-3 border border-neutral-gray rounded-md focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white text-sm"
                       />
                     </label>
                   </div>
+                  {config.outreachTemplateVariables === 0 && config.outreachTemplateName && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+                      Esta plantilla no tiene variables: al iniciar un chat se enviará <strong>solo el texto fijo de la plantilla</strong>, sin el mensaje que escriba el comercial.
+                    </p>
+                  )}
                   <div className="bg-white border border-neutral-gray rounded-md p-4">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-sm font-medium text-neutral-dark">Plantillas de tu cuenta de Meta</span>

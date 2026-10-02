@@ -749,8 +749,11 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
   if (isFirstContact) {
     const config = await prisma.botConfig.findFirst();
     if (config?.outreachTemplateName) {
-      const variableCount = config.outreachTemplateVariables ?? 1;
-      const parameters = [parsed.data.body, ...Array(Math.max(0, variableCount - 1)).fill('')];
+      const variableCount = config.outreachTemplateVariables ?? 0;
+      // Sin variables: solo se envía el texto fijo de la plantilla.
+      const parameters = variableCount > 0
+        ? [parsed.data.body, ...Array(Math.max(0, variableCount - 1)).fill('')]
+        : [];
       sent = await sendWhatsAppTemplate(
         phone,
         config.outreachTemplateName,
@@ -772,8 +775,10 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
       // Texto libre rechazado fuera de ventana: reintentar con plantilla si existe.
       const config = await prisma.botConfig.findFirst();
       if (config?.outreachTemplateName) {
-        const variableCount = config.outreachTemplateVariables ?? 1;
-        const parameters = [parsed.data.body, ...Array(Math.max(0, variableCount - 1)).fill('')];
+        const variableCount = config.outreachTemplateVariables ?? 0;
+        const parameters = variableCount > 0
+          ? [parsed.data.body, ...Array(Math.max(0, variableCount - 1)).fill('')]
+          : [];
         sent = await sendWhatsAppTemplate(
           phone,
           config.outreachTemplateName,
