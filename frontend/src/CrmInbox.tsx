@@ -226,6 +226,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [filterIncludeFinal, setFilterIncludeFinal] = useState(false)
   const [filterAssignedUser, setFilterAssignedUser] = useState('')
   const [filterUnread, setFilterUnread] = useState(false)
+  const [filterUnassigned, setFilterUnassigned] = useState(false)
   const [searchInput, setSearchInput] = useState('')
   const [filterSearch, setFilterSearch] = useState('')
   const [startOpen, setStartOpen] = useState(false)
@@ -368,14 +369,14 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   // Ref con los filtros actuales: el polling y el SSE ejecutan versiones
   // viejas de loadConversations (closure), así que leen de aquí para no
   // perder los filtros activos con el paso del tiempo.
-  const filtersRef = useRef({ filterStatus: '', filterSource: '', filterSearch: '', filterIncludeFinal: false, filterAssignedUser: '', filterUnread: false })
+  const filtersRef = useRef({ filterStatus: '', filterSource: '', filterSearch: '', filterIncludeFinal: false, filterAssignedUser: '', filterUnread: false, filterUnassigned: false })
 
   useEffect(() => {
-    filtersRef.current = { filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread }
-  }, [filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread])
+    filtersRef.current = { filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread, filterUnassigned }
+  }, [filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread, filterUnassigned])
 
   const loadConversations = async (pageToLoad = 1) => {
-    const { filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread } = filtersRef.current
+    const { filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread, filterUnassigned } = filtersRef.current
     const params = new URLSearchParams()
     if (filterStatus) params.set('businessStatus', filterStatus)
     if (filterSource) params.set('source', filterSource)
@@ -383,6 +384,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     if (filterIncludeFinal) params.set('includeFinal', 'true')
     if (filterAssignedUser) params.set('assignedUserId', filterAssignedUser)
     if (filterUnread) params.set('unreadOnly', 'true')
+    if (filterUnassigned) params.set('unassignedOnly', 'true')
     params.set('page', String(pageToLoad))
     params.set('pageSize', '500')
     const response = await axios.get(`${API_URL}/api/crm/conversations?${params.toString()}`, { headers: authHeaders(token) })
@@ -475,7 +477,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     if (!token) return
     void loadConversations(1).catch(() => undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread])
+  }, [token, filterStatus, filterSource, filterSearch, filterIncludeFinal, filterAssignedUser, filterUnread, filterUnassigned])
 
   // Debounce del buscador para no disparar una petición por tecla.
   useEffect(() => {
@@ -923,18 +925,27 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
               <div className="flex items-center space-x-2">
                 <label className="text-xs text-neutral-darkgray w-20">Asesor:</label>
                 <select
-                  value={filterAssignedUser}
-                  onChange={(e) => setFilterAssignedUser(e.target.value)}
+                  value={filterUnassigned ? '__unassigned__' : filterAssignedUser}
+                  onChange={(e) => {
+                    if (e.target.value === '__unassigned__') {
+                      setFilterUnassigned(true)
+                      setFilterAssignedUser('')
+                    } else {
+                      setFilterUnassigned(false)
+                      setFilterAssignedUser(e.target.value)
+                    }
+                  }}
                   className="flex-1 border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
                 >
                   <option value="">Todos</option>
+                  <option value="__unassigned__">Sin asignar</option>
                   {assignableUsers.map((user) => (
                     <option key={user.id} value={user.id}>{user.name}</option>
                   ))}
                 </select>
-                {filterAssignedUser && (
+                {(filterAssignedUser || filterUnassigned) && (
                   <button
-                    onClick={() => setFilterAssignedUser('')}
+                    onClick={() => { setFilterAssignedUser(''); setFilterUnassigned(false) }}
                     className="p-1.5 text-neutral-darkgray hover:text-red-500 transition-colors"
                     title="Limpiar filtro"
                   >

@@ -473,6 +473,22 @@ describe('conversationController - listConversations', () => {
       })
     );
   });
+
+  it('filters unassigned conversations for admin when unassignedOnly is set', async () => {
+    mockPrisma.notification.findMany.mockResolvedValue([] as never);
+    mockPrisma.conversation.findMany.mockResolvedValueOnce([{ id: 'conv-sin-asignar' }] as never);
+    mockPrisma.conversation.count.mockResolvedValue(1 as never);
+
+    const res = makeRes();
+    await listConversations(makeReq({ user: { id: 'admin-1', role: 'ADMIN' }, query: { page: '1', pageSize: '50', includeFinal: 'true', unassignedOnly: 'true' } }), res);
+
+    expect(mockPrisma.conversation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ assignedUserId: null }) })
+    );
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [expect.objectContaining({ id: 'conv-sin-asignar', unread: false })] })
+    );
+  });
 });
 
 describe('conversationController - getConversation', () => {

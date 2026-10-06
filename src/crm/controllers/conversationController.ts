@@ -22,7 +22,8 @@ const listQuerySchema = z.object({
   source: z.enum(['ADS', 'ORGANIC']).optional(),
   search: z.string().trim().min(1).max(100).optional(),
   includeFinal: z.coerce.boolean().optional(),
-  unreadOnly: z.coerce.boolean().optional()
+  unreadOnly: z.coerce.boolean().optional(),
+  unassignedOnly: z.coerce.boolean().optional()
 });
 
 const messageSchema = z.object({
@@ -137,7 +138,7 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
     return problem(res, 400, 'Invalid conversation filters');
   }
 
-  const { page, pageSize, status, priority, assignedUserId, businessStatus, source, search, includeFinal } = parsed.data;
+  const { page, pageSize, status, priority, assignedUserId, businessStatus, source, search, includeFinal, unassignedOnly } = parsed.data;
   const userFilter = canSeeAllConversations(req.user.role)
     ? {}
     : { assignedUserId: req.user.id };
@@ -146,6 +147,9 @@ export const listConversations = async (req: AuthenticatedRequest, res: Response
     ...(status ? { status } : {}),
     ...(priority ? { priority } : {}),
     ...(assignedUserId ? { assignedUserId } : {}),
+    // Filtro "Sin asignar" (solo relevante para ADMIN/MARKETING_DIRECTOR):
+    // conversaciones en la cola sin comercial asignado.
+    ...(unassignedOnly && canSeeAllConversations(req.user.role) ? { assignedUserId: null } : {}),
     ...(source === 'ADS' ? { source: 'ADS' } : {}),
     ...(source === 'ORGANIC' ? { source: null } : {}),
     ...(search
