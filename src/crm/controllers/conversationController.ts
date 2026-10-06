@@ -342,7 +342,7 @@ export const reactivateBot = async (req: AuthenticatedRequest, res: Response) =>
   const conversationId = parsedId.data;
 
   try {
-    return res.json(await returnConversationToBot(conversationId, req.user.id));
+    return res.json(await returnConversationToBot(conversationId, req.user));
   } catch (error) {
     const code = error instanceof Error ? error.message : 'UNKNOWN';
     if (code === 'CONVERSATION_NOT_FOUND') return problem(res, 404, 'Conversation not found');

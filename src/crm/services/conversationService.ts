@@ -347,15 +347,21 @@ export const takeConversation = async (conversationId: string, userId: string) =
   return conversation;
 };
 
-export const returnConversationToBot = async (conversationId: string, userId: string) => {
+export const returnConversationToBot = async (
+  conversationId: string,
+  user: { id: string; role: string }
+) => {
   const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
   if (!conversation) throw new Error('CONVERSATION_NOT_FOUND');
-  if (conversation.assignedUserId !== userId) throw new Error('USER_NOT_ALLOWED');
+  // ADMIN y MARKETING_DIRECTOR pueden devolver cualquier conversación al bot;
+  // un agente solo las suyas.
+  const canManage = ['ADMIN', 'MARKETING_DIRECTOR'].includes(user.role);
+  if (!canManage && conversation.assignedUserId !== user.id) throw new Error('USER_NOT_ALLOWED');
 
   return prisma.$transaction(async (tx) => {
     await tx.conversation.update({ where: { id: conversationId }, data: { status: 'BOT_ACTIVE' } });
     await tx.auditEvent.create({
-      data: { conversationId, actorUserId: userId, eventType: 'BOT_REACTIVATED' }
+      data: { conversationId, actorUserId: user.id, eventType: 'BOT_REACTIVATED' }
     });
     return tx.conversation.findUniqueOrThrow({ where: { id: conversationId } });
   });
