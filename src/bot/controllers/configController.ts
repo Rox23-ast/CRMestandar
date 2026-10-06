@@ -77,6 +77,7 @@ export const updateBotConfig = async (req: Request, res: Response) => {
     } = parsed.data;
 
     const existingConfig = await prisma.botConfig.findFirst();
+    const wasBotEnabled = existingConfig?.botEnabled ?? true;
 
     let config;
     if (existingConfig) {
@@ -109,7 +110,18 @@ export const updateBotConfig = async (req: Request, res: Response) => {
         }
       });
     }
-    
+
+    // Al activar el bot (transición apagado → encendido), todas las
+    // conversaciones que estaban en manos humanas vuelven al bot de una vez,
+    // sin necesidad de devolverlas una a una desde la bandeja.
+    if (wasBotEnabled === false && botEnabled === true) {
+      const result = await prisma.conversation.updateMany({
+        where: { status: { in: ['HUMAN_ACTIVE', 'NEW'] } },
+        data: { status: 'BOT_ACTIVE' }
+      });
+      console.log(`[Bot] Bot activado: ${result.count} conversaciones devueltas al bot`);
+    }
+
     // Serialize custom rules as an array for the HTTP response.
     res.json({
       ...config,

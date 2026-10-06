@@ -44,7 +44,7 @@ La persistencia de datos se maneja mediante **SQLite** y se gestiona con el ORM 
 - **Conversación como unidad de trabajo:** El primer mensaje de un cliente crea una `Conversation`. Los mensajes posteriores mantienen la misma asignación hasta que la conversación se cierre.
 - **Mensajes:** Cada entrada y salida se registra en `Message`, con dirección, autor (`CUSTOMER`, `BOT`, `AGENT`), tipo, estado de entrega e identificador externo de WhatsApp para evitar duplicados.
 - **Asignación inicial:** toda conversación nueva entra a la cola del rol `MARKETING_DIRECTOR` (`assignedRole`, sin `assignedUserId`) con `reason: INITIAL_MARKETING_QUEUE`; la directora de marketing distribuye a los comerciales desde la bandeja con "Asignar" (el round-robin automático quedó deshabilitado).
-- **Control bot/agente:** La conversación inicia en `BOT_ACTIVE`. El agente puede tomarla (`HUMAN_ACTIVE`) y reactivar el bot explícitamente. Una conversación resuelta se reabre cuando llega un nuevo mensaje.
+- **Control bot/agente:** La conversación inicia en `BOT_ACTIVE`. El agente puede tomarla (`HUMAN_ACTIVE`) y reactivar el bot explícitamente. Al **activar el bot** desde el toggle (transición apagado → encendido en `updateBotConfig`), todas las conversaciones `HUMAN_ACTIVE`/`NEW` vuelven a `BOT_ACTIVE` de una vez. Una conversación resuelta se reabre cuando llega un nuevo mensaje.
 - **Auditoría:** Cambios de asignación, toma de control y reactivación del bot se registran en `AuditEvent`.
 - **Seguimiento:** `SlaPolicy`, prioridad y `nextFollowUpAt` permiten ajustar los tiempos de respuesta y seguimiento sin hard-codear la operación.
 
