@@ -22,8 +22,13 @@ const botConfigSchema = z.object({
   outreachTemplateVariables: z.number().int().min(0).max(20).optional()
 });
 
-const problem = (res: Response, status: number, title: string) =>
-  res.status(status).json({ type: `https://httpstatuses.com/${status}`, title, status });
+const problem = (res: Response, status: number, title: string, detail?: string) =>
+  res.status(status).json({
+    type: `https://httpstatuses.com/${status}`,
+    title,
+    status,
+    ...(detail ? { detail } : {})
+  });
 
 export const getBotConfig = async (req: Request, res: Response) => {
   try {
@@ -164,7 +169,14 @@ export const checkContact = async (req: Request, res: Response) => {
   if (!parsed.success) return problem(res, 400, 'Phone is invalid');
 
   const result = await checkWhatsAppContact(parsed.data.phone);
-  if (!result) return problem(res, 502, 'No fue posible verificar el número con WhatsApp');
+  if (!result) {
+    return problem(
+      res,
+      502,
+      'No fue posible verificar el número con WhatsApp',
+      'Meta no permite consultar contactos con esta cuenta. Si inicias el chat y el número no existe en WhatsApp, el envío fallará y te lo indicará.'
+    );
+  }
 
   return res.json({ phone: parsed.data.phone, ...result });
 };

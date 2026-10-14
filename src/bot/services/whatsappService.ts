@@ -10,13 +10,26 @@ import { getRawCredentials } from '../../crm/services/credentialService';
  * Meta lo muestra como cita/reply en el chat del cliente.
  */
 export const sendWhatsAppMessage = async (to: string, message: string, contextMessageId?: string): Promise<boolean> => {
+  return (await sendWhatsAppMessageDetailed(to, message, contextMessageId)).sent;
+};
+
+/**
+ * Igual que sendWhatsAppMessage pero devuelve también el código de error de
+ * Meta (p. ej. 131026 = número no registrado en WhatsApp) para dar mejores
+ * mensajes al agente.
+ */
+export const sendWhatsAppMessageDetailed = async (
+  to: string,
+  message: string,
+  contextMessageId?: string
+): Promise<{ sent: boolean; errorCode?: number }> => {
   const creds = await getRawCredentials();
   const token = creds.WA_API_TOKEN;
   const phoneNumberId = creds.WA_PHONE_NUMBER_ID;
 
   if (!token || !phoneNumberId) {
     console.error("Faltan las credenciales de WhatsApp (WA_API_TOKEN o WA_PHONE_NUMBER_ID)");
-    return false;
+    return { sent: false };
   }
 
   const url = `https://graph.facebook.com/v17.0/${phoneNumberId}/messages`;
@@ -40,15 +53,21 @@ export const sendWhatsAppMessage = async (to: string, message: string, contextMe
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Error enviando mensaje a WhatsApp:', JSON.stringify(errorData));
-      return false;
+      let errorCode: number | undefined;
+      try {
+        const errorData = await response.json();
+        errorCode = errorData?.error?.code;
+      } catch {
+        // Ignore parse errors; the status alone is enough to fail.
+      }
+      console.error('Error enviando mensaje a WhatsApp:', JSON.stringify({ status: response.status, errorCode }));
+      return { sent: false, errorCode };
     }
 
-    return true;
+    return { sent: true };
   } catch (error) {
     console.error('Error de red al intentar enviar mensaje a WhatsApp:', error);
-    return false;
+    return { sent: false };
   }
 };
 

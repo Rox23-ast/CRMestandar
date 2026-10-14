@@ -234,6 +234,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [newMessage, setNewMessage] = useState('')
   const [checkingContact, setCheckingContact] = useState(false)
   const [checkResult, setCheckResult] = useState<'valid' | 'invalid' | 'error' | null>(null)
+  const [checkError, setCheckError] = useState('')
   const [quickReplies, setQuickReplies] = useState<{ id: string; label: string; text: string }[]>([])
   const [repliesPanelOpen, setRepliesPanelOpen] = useState(false)
   const [replyLabel, setReplyLabel] = useState('')
@@ -602,7 +603,9 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
         { headers: authHeaders(token) }
       )
       setCheckResult(response.data.status === 'valid' ? 'valid' : 'invalid')
-    } catch {
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setCheckError(detail ?? 'No fue posible verificar el número con WhatsApp.')
       setCheckResult('error')
     } finally {
       setCheckingContact(false)
@@ -1002,7 +1005,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                   <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-1.5">✗ El número no existe en WhatsApp.</p>
                 )}
                 {checkResult === 'error' && (
-                  <p className="text-xs text-neutral-darkgray bg-neutral-light/50 border border-neutral-gray rounded-md px-3 py-1.5">No fue posible verificar el número con WhatsApp.</p>
+                  <p className="text-xs text-neutral-darkgray bg-neutral-light/50 border border-neutral-gray rounded-md px-3 py-1.5">{checkError || 'No fue posible verificar el número con WhatsApp.'}</p>
                 )}
                 <input
                   value={newMessage}

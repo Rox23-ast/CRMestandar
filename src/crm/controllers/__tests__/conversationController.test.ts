@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { statusSchema, listAssignableUsers, sendAgentAttachment, sendAgentMessage, sendAgentTemplate, startConversation, getMedia, updateConversationClient, listConversations, getConversation, updateMessage, deleteMessage } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
 import { recordOutboundMessage } from '../../services/conversationService';
-import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, sendWhatsAppTemplate, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
+import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, sendWhatsAppMessageDetailed, sendWhatsAppTemplate, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
 
 jest.mock('../../../core/database/prisma', () => ({
   prisma: {
@@ -24,6 +24,7 @@ jest.mock('../../../bot/services/whatsappService', () => ({
   uploadWhatsAppMedia: jest.fn(),
   sendWhatsAppMedia: jest.fn(),
   sendWhatsAppMessage: jest.fn(),
+  sendWhatsAppMessageDetailed: jest.fn(),
   sendWhatsAppTemplate: jest.fn(),
   getWhatsAppMedia: jest.fn(),
   downloadWhatsAppMedia: jest.fn()
@@ -42,6 +43,7 @@ const mockRecordOutbound = recordOutboundMessage as jest.Mock;
 const mockUploadMedia = uploadWhatsAppMedia as jest.Mock;
 const mockSendMedia = sendWhatsAppMedia as jest.Mock;
 const mockSendWhatsApp = sendWhatsAppMessage as jest.Mock;
+const mockSendWhatsAppDetailed = sendWhatsAppMessageDetailed as jest.Mock;
 const mockSendTemplate = sendWhatsAppTemplate as jest.Mock;
 const mockGetMedia = getWhatsAppMedia as jest.Mock;
 const mockDownloadMedia = downloadWhatsAppMedia as jest.Mock;
@@ -553,6 +555,7 @@ describe('conversationController - startConversation', () => {
     mockPrisma.conversation.update.mockResolvedValue({} as never);
     mockPrisma.botConfig.findFirst.mockResolvedValue(null as never);
     mockSendWhatsApp.mockResolvedValue(true as never);
+    mockSendWhatsAppDetailed.mockResolvedValue({ sent: true } as never);
     mockRecordOutbound.mockResolvedValue({ id: 'msg-1' } as never);
   });
 
@@ -572,7 +575,7 @@ describe('conversationController - startConversation', () => {
         assignedUserId: 'agent-1'
       })
     });
-    expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', 'Hola, soy de Mudanzas Chico');
+    expect(mockSendWhatsAppDetailed).toHaveBeenCalledWith('573001112233', 'Hola, soy de Mudanzas Chico');
     expect(mockRecordOutbound).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: 'conv-new', senderType: 'AGENT', deliveryStatus: 'SENT' })
     );
@@ -588,7 +591,7 @@ describe('conversationController - startConversation', () => {
   });
 
   it('returns 502 with the 24h-window detail when WhatsApp rejects the send', async () => {
-    mockSendWhatsApp.mockResolvedValue(false as never);
+    mockSendWhatsAppDetailed.mockResolvedValue({ sent: false, errorCode: 131047 } as never);
     const res = makeRes();
 
     await startConversation(makeReq(), res);
@@ -597,6 +600,20 @@ describe('conversationController - startConversation', () => {
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         detail: expect.stringContaining('plantilla')
+      })
+    );
+  });
+
+  it('returns 502 with the not-registered detail for error 131026', async () => {
+    mockSendWhatsAppDetailed.mockResolvedValue({ sent: false, errorCode: 131026 } as never);
+    const res = makeRes();
+
+    await startConversation(makeReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.stringContaining('no está registrado en WhatsApp')
       })
     );
   });
@@ -629,13 +646,13 @@ describe('conversationController - startConversation', () => {
       outreachTemplateVariables: 1
     } as never);
     mockSendTemplate.mockResolvedValue(false as never);
-    mockSendWhatsApp.mockResolvedValue(true as never);
+    mockSendWhatsAppDetailed.mockResolvedValue({ sent: true } as never);
 
     const res = makeRes();
     await startConversation(makeReq(), res);
 
     expect(mockSendTemplate).toHaveBeenCalled();
-    expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', 'Hola, soy de Mudanzas Chico');
+    expect(mockSendWhatsAppDetailed).toHaveBeenCalledWith('573001112233', 'Hola, soy de Mudanzas Chico');
     expect(res.status).toHaveBeenCalledWith(201);
   });
 
@@ -668,7 +685,7 @@ describe('conversationController - startConversation', () => {
     await startConversation(makeReq(), res);
 
     expect(mockSendTemplate).not.toHaveBeenCalled();
-    expect(mockSendWhatsApp).toHaveBeenCalledWith('573001112233', 'Hola, soy de Mudanzas Chico');
+    expect(mockSendWhatsAppDetailed).toHaveBeenCalledWith('573001112233', 'Hola, soy de Mudanzas Chico');
     expect(res.status).toHaveBeenCalledWith(201);
   });
 });

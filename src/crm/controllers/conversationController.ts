@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { AuthenticatedRequest } from '../../core/auth/authMiddleware';
 import { prisma } from '../../core/database/prisma';
-import { sendWhatsAppMessage, sendWhatsAppDocument, uploadWhatsAppMedia, sendWhatsAppMedia, getWhatsAppMedia, downloadWhatsAppMedia, sendWhatsAppTemplate, WhatsAppMediaType } from '../../bot/services/whatsappService';
+import { sendWhatsAppMessage, sendWhatsAppMessageDetailed, sendWhatsAppDocument, uploadWhatsAppMedia, sendWhatsAppMedia, getWhatsAppMedia, downloadWhatsAppMedia, sendWhatsAppTemplate, WhatsAppMediaType } from '../../bot/services/whatsappService';
 import {
   DEFAULT_WEEKLY_SCHEDULE,
   manuallyAssignConversation,
@@ -801,6 +801,7 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
 
   let sent = false;
   let templateUsed = false;
+  let lastErrorCode: number | undefined;
 
   // Primer contacto con un número que nunca ha escrito: WhatsApp exige una
   // plantilla aprobada (ventana de 24h). Si hay plantilla configurada se envía
@@ -822,15 +823,21 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
       templateUsed = true;
       if (!sent) {
         // La plantilla falló (nombre mal, rechazada, etc.): intentar texto libre.
-        sent = await sendWhatsAppMessage(phone, parsed.data.body);
+        const detailed = await sendWhatsAppMessageDetailed(phone, parsed.data.body);
+        sent = detailed.sent;
+        lastErrorCode = detailed.errorCode;
         templateUsed = false;
       }
     } else {
-      sent = await sendWhatsAppMessage(phone, parsed.data.body);
+      const detailed = await sendWhatsAppMessageDetailed(phone, parsed.data.body);
+      sent = detailed.sent;
+      lastErrorCode = detailed.errorCode;
     }
   } else {
-    sent = await sendWhatsAppMessage(phone, parsed.data.body);
-    if (!sent && isFirstContact === false) {
+    const detailed = await sendWhatsAppMessageDetailed(phone, parsed.data.body);
+    sent = detailed.sent;
+    lastErrorCode = detailed.errorCode;
+    if (!sent) {
       // Texto libre rechazado fuera de ventana: reintentar con plantilla si existe.
       const config = await prisma.botConfig.findFirst();
       if (config?.outreachTemplateName) {
@@ -857,6 +864,9 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
   });
 
   if (!sent) {
+    if (lastErrorCode === 131026) {
+      return problem(res, 502, 'WhatsApp message could not be sent', 'Este número no está registrado en WhatsApp.');
+    }
     return problem(
       res,
       502,
