@@ -232,6 +232,8 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [startOpen, setStartOpen] = useState(false)
   const [newPhone, setNewPhone] = useState('')
   const [newMessage, setNewMessage] = useState('')
+  const [checkingContact, setCheckingContact] = useState(false)
+  const [checkResult, setCheckResult] = useState<'valid' | 'invalid' | 'error' | null>(null)
   const [quickReplies, setQuickReplies] = useState<{ id: string; label: string; text: string }[]>([])
   const [repliesPanelOpen, setRepliesPanelOpen] = useState(false)
   const [replyLabel, setReplyLabel] = useState('')
@@ -578,12 +580,32 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
       )
       setNewPhone('')
       setNewMessage('')
+      setCheckResult(null)
       setStartOpen(false)
       await loadConversations(conversationPageRef.current)
       await loadConversation(response.data.conversation.id)
     } catch (error) {
       const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setError(detail ? `No fue posible iniciar la conversación: ${detail}` : 'No fue posible iniciar la conversación.')
+    }
+  }
+
+  const checkPhone = async () => {
+    const phone = newPhone.replace(/[^\d+]/g, '')
+    if (!phone || checkingContact) return
+    setCheckingContact(true)
+    setCheckResult(null)
+    try {
+      const response = await axios.post(
+        `${API_URL}/api/bot/check-contact`,
+        { phone },
+        { headers: authHeaders(token) }
+      )
+      setCheckResult(response.data.status === 'valid' ? 'valid' : 'invalid')
+    } catch {
+      setCheckResult('error')
+    } finally {
+      setCheckingContact(false)
     }
   }
 
@@ -956,12 +978,32 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
             )}
             {startOpen ? (
               <form onSubmit={handleStartChat} className="space-y-2 pt-1">
-                <input
-                  value={newPhone}
-                  onChange={(e) => setNewPhone(e.target.value)}
-                  placeholder="Número (ej. 573001112233)"
-                  className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
-                />
+                <div className="flex gap-2">
+                  <input
+                    value={newPhone}
+                    onChange={(e) => { setNewPhone(e.target.value); setCheckResult(null) }}
+                    placeholder="Número (ej. 573001112233)"
+                    className="flex-1 min-w-0 border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void checkPhone()}
+                    disabled={checkingContact || !newPhone.trim()}
+                    className="border border-secondary text-secondary px-3 py-1.5 rounded-md text-sm disabled:opacity-50 whitespace-nowrap"
+                    title="Verificar si el número existe en WhatsApp"
+                  >
+                    {checkingContact ? 'Verificando…' : 'Verificar'}
+                  </button>
+                </div>
+                {checkResult === 'valid' && (
+                  <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-1.5">✓ El número existe en WhatsApp.</p>
+                )}
+                {checkResult === 'invalid' && (
+                  <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-1.5">✗ El número no existe en WhatsApp.</p>
+                )}
+                {checkResult === 'error' && (
+                  <p className="text-xs text-neutral-darkgray bg-neutral-light/50 border border-neutral-gray rounded-md px-3 py-1.5">No fue posible verificar el número con WhatsApp.</p>
+                )}
                 <input
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}

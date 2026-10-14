@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../core/database/prisma';
-import { listWhatsAppTemplates } from '../services/whatsappService';
+import { listWhatsAppTemplates, checkWhatsAppContact } from '../services/whatsappService';
 
 const customRuleSchema = z.object({
   id: z.string(),
@@ -148,4 +148,23 @@ export const listTemplates = async (_req: Request, res: Response) => {
     console.error('Error listing WhatsApp templates:', error);
     return res.status(502).json({ error: 'No fue posible consultar las plantillas de WhatsApp' });
   }
+};
+
+const checkContactSchema = z.object({
+  phone: z.string().trim().regex(/^\+?\d{7,20}$/, 'Phone must be digits with optional +')
+});
+
+/**
+ * POST /api/bot/check-contact
+ * Verifica si un número existe en WhatsApp usando las credenciales del sistema
+ * (endpoint /contacts de la Graph API).
+ */
+export const checkContact = async (req: Request, res: Response) => {
+  const parsed = checkContactSchema.safeParse(req.body);
+  if (!parsed.success) return problem(res, 400, 'Phone is invalid');
+
+  const result = await checkWhatsAppContact(parsed.data.phone);
+  if (!result) return problem(res, 502, 'No fue posible verificar el número con WhatsApp');
+
+  return res.json({ phone: parsed.data.phone, ...result });
 };

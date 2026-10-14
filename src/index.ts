@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
-import { getBotConfig, updateBotConfig, listTemplates } from './bot/controllers/configController';
+import { getBotConfig, updateBotConfig, listTemplates, checkContact } from './bot/controllers/configController';
 import { verifyWebhook, receiveMessage } from './bot/controllers/webhookController';
 import { receiveCotizadorEvent } from './integrations/cotizadorController';
 import { crmRouter } from './crm/routes';
@@ -160,6 +160,7 @@ app.get('/health', (req: Request, res: Response) => {
 app.get('/api/bot/config', requireCrmUser, requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), getBotConfig);
 app.put('/api/bot/config', requireCrmUser, requireCrmRole('ADMIN', 'MARKETING_DIRECTOR'), updateBotConfig);
 app.get('/api/bot/templates', requireCrmUser, listTemplates);
+app.post('/api/bot/check-contact', requireCrmUser, checkContact);
 
 // CRM inbox and real-time notification endpoints.
 app.use('/api/crm', crmRouter);

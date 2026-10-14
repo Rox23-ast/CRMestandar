@@ -170,6 +170,50 @@ export const sendWhatsAppTemplate = async (
 };
 
 /**
+ * Verifica si un número existe en WhatsApp usando el endpoint /contacts de la
+ * Graph API con las credenciales almacenadas. Devuelve el estado de Meta
+ * ('valid' | 'invalid' | …) o null si la consulta no pudo completarse.
+ */
+export const checkWhatsAppContact = async (
+  phone: string
+): Promise<{ status: string; waId?: string } | null> => {
+  const creds = await getRawCredentials();
+  const token = creds.WA_API_TOKEN;
+  const phoneNumberId = creds.WA_PHONE_NUMBER_ID;
+
+  if (!token || !phoneNumberId) {
+    console.error('Faltan credenciales para verificar contactos (WA_API_TOKEN o WA_PHONE_NUMBER_ID)');
+    return null;
+  }
+
+  const url = `https://graph.facebook.com/v17.0/${phoneNumberId}/contacts`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ blocking: 'wait', contacts: [phone] })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error verificando contacto en WhatsApp:', errorText.slice(0, 300));
+      return null;
+    }
+
+    const data = await response.json() as { contacts?: { status?: string; wa_id?: string }[] };
+    const contact = data.contacts?.[0];
+    return contact ? { status: contact.status ?? 'unknown', waId: contact.wa_id } : null;
+  } catch (error) {
+    console.error('Error de red verificando contacto en WhatsApp:', error);
+    return null;
+  }
+};
+
+/**
  * Lista las plantillas de la cuenta de WhatsApp Business (WABA) vía Graph API.
  * Devuelve nombre, idioma, estado, categoría y cantidad de variables del cuerpo.
  */

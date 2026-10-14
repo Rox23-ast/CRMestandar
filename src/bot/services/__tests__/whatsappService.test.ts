@@ -1,4 +1,4 @@
-import { uploadWhatsAppMedia, sendWhatsAppMedia } from '../whatsappService';
+import { uploadWhatsAppMedia, sendWhatsAppMedia, checkWhatsAppContact } from '../whatsappService';
 import { getRawCredentials } from '../../../crm/services/credentialService';
 
 jest.mock('../../../crm/services/credentialService', () => ({
@@ -83,6 +83,47 @@ describe('whatsappService - media', () => {
       const sent = await sendWhatsAppMedia('573001112233', 'image', 'media-3');
 
       expect(sent).toBe(false);
+    });
+  });
+
+  describe('checkWhatsAppContact', () => {
+    it('returns valid with the wa_id for an existing number', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ contacts: [{ input: '573001112233', wa_id: '573001112233', status: 'valid' }] })
+      } as never) as jest.Mock;
+
+      const result = await checkWhatsAppContact('573001112233');
+
+      const fetchMock = global.fetch as jest.Mock;
+      expect(fetchMock.mock.calls[0][0]).toContain('/12345/contacts');
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+        blocking: 'wait',
+        contacts: ['573001112233']
+      });
+      expect(result).toEqual({ status: 'valid', waId: '573001112233' });
+    });
+
+    it('returns invalid for a number not on WhatsApp', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ contacts: [{ input: '573001112233', status: 'invalid' }] })
+      } as never) as jest.Mock;
+
+      const result = await checkWhatsAppContact('573001112233');
+
+      expect(result).toEqual({ status: 'invalid', waId: undefined });
+    });
+
+    it('returns null when Meta rejects the request', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        text: async () => '{"error":{"message":"missing permissions"}}'
+      } as never) as jest.Mock;
+
+      const result = await checkWhatsAppContact('573001112233');
+
+      expect(result).toBeNull();
     });
   });
 });
