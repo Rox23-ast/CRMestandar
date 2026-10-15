@@ -24,7 +24,8 @@ import {
   Users,
   UserCog,
   UserCheck,
-  Contact
+  Contact,
+  Menu
 } from 'lucide-react'
 
 // Define the shape of our config
@@ -62,6 +63,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<'messages' | 'personality' | 'rules' | 'dynamic' | 'credentials' | 'users' | 'account' | 'statuses' | 'leads'>('messages')
   const [configGroupOpen, setConfigGroupOpen] = useState(true)
   const [adminGroupOpen, setAdminGroupOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [config, setConfig] = useState<BotConfig>({
     greetingMessage: '',
     awayMessage: '',
@@ -291,8 +293,13 @@ function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-neutral-light font-raleway">
       
+      {/* Overlay móvil del sidebar */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 bg-primary text-white flex flex-col">
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-primary text-white flex flex-col transform transition-transform duration-200 md:static md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 flex flex-col items-center border-b border-primary-light">
           <div className="w-40 mb-4 flex justify-center">
             <img src={`${import.meta.env.BASE_URL}logo-1.png`} alt="Mudanzas Chico Logo" className="max-w-full h-auto object-contain" />
@@ -305,7 +312,7 @@ function App() {
           <div>
             <p className="px-4 py-2 text-xs uppercase tracking-wider text-neutral-gray">CRM</p>
             <button
-              onClick={() => { setActivePanel('crm'); setActiveTab('messages'); }}
+              onClick={() => { setActivePanel('crm'); setActiveTab('messages'); setSidebarOpen(false); }}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${
                 isCrmActive ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
               }`}
@@ -314,7 +321,7 @@ function App() {
               <span>Bandeja CRM</span>
             </button>
             <button
-              onClick={() => { setActivePanel('crm'); setActiveTab('leads'); }}
+              onClick={() => { setActivePanel('crm'); setActiveTab('leads'); setSidebarOpen(false); }}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${
                 isCrmActive && activeTab === 'leads' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
               }`}
@@ -338,7 +345,7 @@ function App() {
               {configGroupOpen && (
                 <div className="space-y-1 pl-2 mt-1 border-l border-primary-light">
                   <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('statuses'); }}
+                    onClick={() => { setActivePanel('config'); setActiveTab('statuses'); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
                       activePanel === 'config' && activeTab === 'statuses' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
                     }`}
@@ -365,7 +372,7 @@ function App() {
               {configGroupOpen && (
                 <div className="space-y-1 pl-2 mt-1 border-l border-primary-light">
                   <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('messages'); }}
+                    onClick={() => { setActivePanel('config'); setActiveTab('messages'); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
                       activePanel === 'config' && activeTab === 'messages' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
                     }`}
@@ -375,7 +382,7 @@ function App() {
                   </button>
                   
                   <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('personality'); }}
+                    onClick={() => { setActivePanel('config'); setActiveTab('personality'); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
                       activePanel === 'config' && activeTab === 'personality' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
                     }`}
@@ -385,7 +392,7 @@ function App() {
                   </button>
                   
                   <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('dynamic'); }}
+                    onClick={() => { setActivePanel('config'); setActiveTab('dynamic'); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
                       activePanel === 'config' && activeTab === 'dynamic' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
                     }`}
@@ -395,7 +402,7 @@ function App() {
                   </button>
                   
                   <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('rules'); }}
+                    onClick={() => { setActivePanel('config'); setActiveTab('rules'); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
                       activePanel === 'config' && activeTab === 'rules' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
                     }`}
@@ -406,7 +413,7 @@ function App() {
                   
                   {isAdmin && (
                     <button 
-                      onClick={() => { setActivePanel('config'); setActiveTab('credentials'); }}
+                      onClick={() => { setActivePanel('config'); setActiveTab('credentials'); setSidebarOpen(false); }}
                       className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
                         activePanel === 'config' && activeTab === 'credentials' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
                       }`}
@@ -434,7 +441,7 @@ function App() {
               {adminGroupOpen && (
                 <div className="space-y-1 pl-2 mt-1 border-l border-primary-light">
                   <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('users'); }}
+                    onClick={() => { setActivePanel('config'); setActiveTab('users'); setSidebarOpen(false); }}
                     className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
                       activePanel === 'config' && activeTab === 'users' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
                     }`}
@@ -450,7 +457,7 @@ function App() {
           {/* Mi Cuenta Group */}
           <div>
             <button
-              onClick={() => { setActivePanel('config'); setActiveTab('account'); }}
+              onClick={() => { setActivePanel('config'); setActiveTab('account'); setSidebarOpen(false); }}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${
                 activePanel === 'config' && activeTab === 'account' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
               }`}
@@ -466,14 +473,24 @@ function App() {
   <main className="flex-1 flex flex-col">
     
     {/* Header */}
-    <header className="bg-white border-b border-neutral-gray px-8 py-6 flex justify-between items-center sticky top-0 z-10">
-      <div>
-        <h2 className="text-2xl font-cormorant text-primary font-medium">{getHeaderTitle()}</h2>
-        <p className="text-sm text-neutral-darkgray italic mt-1">{getHeaderSubtitle()}</p>
+    <header className="bg-white border-b border-neutral-gray px-4 md:px-8 py-4 md:py-6 flex justify-between items-center gap-4 sticky top-0 z-10">
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="md:hidden p-2 text-primary border border-neutral-gray rounded-md"
+          title="Abrir menú"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <div className="min-w-0">
+          <h2 className="text-xl md:text-2xl font-cormorant text-primary font-medium truncate">{getHeaderTitle()}</h2>
+          <p className="text-xs md:text-sm text-neutral-darkgray italic mt-1 truncate">{getHeaderSubtitle()}</p>
+        </div>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 md:gap-4 flex-shrink-0">
         {crmUserName && (
-          <span className="text-sm text-neutral-darkgray">Bienvenido, <span className="font-medium text-primary">{crmUserName}</span></span>
+          <span className="hidden sm:inline text-sm text-neutral-darkgray">Bienvenido, <span className="font-medium text-primary">{crmUserName}</span></span>
         )}
         {activePanel === 'config' && activeTab !== 'credentials' && activeTab !== 'users' && activeTab !== 'account' && activeTab !== 'statuses' && (
           <button 
@@ -493,14 +510,14 @@ function App() {
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
       {activePanel === 'crm' ? (
         activeTab === 'leads' ? (
-          <div className="p-8 overflow-y-auto w-full mx-auto">
+          <div className="p-4 md:p-8 overflow-y-auto w-full mx-auto">
             <Leads token={token} userRole={crmUserRole} />
           </div>
         ) : (
           <CrmInbox token={token} userRole={crmUserRole} />
         )
       ) : (
-        <div className="p-8 max-w-4xl overflow-y-auto w-full mx-auto">
+        <div className="p-4 md:p-8 max-w-4xl overflow-y-auto w-full mx-auto">
           {/* Toast Notification */}
           {toast.show && (
             <div className="fixed top-24 right-8 bg-primary text-white px-6 py-3 rounded shadow-lg animate-fade-in-down z-50">

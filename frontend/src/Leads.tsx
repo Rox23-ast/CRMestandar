@@ -260,7 +260,7 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between border-b border-neutral-gray pb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-gray pb-4">
         <div className="flex items-center space-x-3">
           <Users className="w-6 h-6 text-secondary" />
           <div>
@@ -270,7 +270,7 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => void fetchLeads()}
             disabled={loading}

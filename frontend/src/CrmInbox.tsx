@@ -237,6 +237,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [checkError, setCheckError] = useState('')
   const [startTemplate, setStartTemplate] = useState<{ name: string; language: string; variableCount: number } | null>(null)
   const [startParams, setStartParams] = useState<string[]>([])
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list')
   const [quickReplies, setQuickReplies] = useState<{ id: string; label: string; text: string }[]>([])
   const [repliesPanelOpen, setRepliesPanelOpen] = useState(false)
   const [replyLabel, setReplyLabel] = useState('')
@@ -404,6 +405,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const loadConversation = async (id: string) => {
     const response = await axios.get(`${API_URL}/api/crm/conversations/${id}`, { headers: authHeaders(token) })
     setSelected(response.data)
+    setMobileView('chat')
     setReplyTo(null)
     setConversations((current) => current.map((conversation) => conversation.id === id ? { ...conversation, unread: false } : conversation))
   }
@@ -867,7 +869,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative bg-neutral-light">
       {error && <div className="bg-red-50 text-red-700 px-6 py-3 text-sm flex-shrink-0">{error}</div>}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] w-full mx-auto overflow-hidden">
-        <section className="bg-white border-r border-neutral-gray flex flex-col h-full overflow-hidden">
+        <section className={`bg-white border-r border-neutral-gray flex-col h-full overflow-hidden ${mobileView === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
           <div className="p-4 border-b border-neutral-gray flex-shrink-0 flex justify-between items-center">
             <div>
               <p className="text-xs uppercase tracking-wider text-neutral-darkgray">Conversaciones</p>
@@ -1244,13 +1246,20 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
             </button>
           </div>
         </section>
-        <section className="flex flex-col h-full overflow-hidden">
+        <section className={`flex-col h-full overflow-hidden ${mobileView === 'list' ? 'hidden lg:flex' : 'flex'}`}>
           {!selected ? (
             <div className="flex-1 flex items-center justify-center text-neutral-darkgray"><div className="text-center"><MessageCircle className="w-12 h-12 mx-auto mb-3 text-secondary" /><p>Selecciona una conversación para ver el historial.</p></div></div>
           ) : (
             <>
               <div className="bg-white border-b border-neutral-gray p-5 flex flex-wrap justify-between gap-4">
                 <div className="min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setMobileView('list')}
+                    className="lg:hidden flex items-center gap-1 text-sm text-secondary mb-2"
+                  >
+                    <ChevronLeft className="w-4 h-4" /> Conversaciones
+                  </button>
                   <h2 className="font-cormorant text-2xl text-primary">{selected.client.name || selected.client.phone}</h2>
                   {selected.client.name && (
                     <p className="text-sm text-neutral-darkgray">{selected.client.phone}</p>
