@@ -43,8 +43,15 @@ const updateMessageSchema = z.object({
 
 const startConversationSchema = z.object({
   phone: z.string().trim().regex(/^\+?\d{7,20}$/, 'Phone must be digits with optional +'),
-  body: z.string().trim().min(1).max(4096)
-});
+  body: z.string().trim().max(4096).optional(),
+  // Opcional: enviar una plantilla concreta como primer mensaje.
+  templateName: z.string().trim().max(200).optional(),
+  templateLanguage: z.string().trim().max(10).optional(),
+  templateParameters: z.array(z.string().max(1000)).max(20).optional()
+}).refine(
+  (data) => Boolean(data.templateName) || Boolean(data.body && data.body.trim().length > 0),
+  { message: 'Se requiere un mensaje o una plantilla' }
+);
 
 const mediaIdSchema = z.string().regex(/^[\w.-]{5,200}$/, 'Media ID is invalid');
 
@@ -803,16 +810,26 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
   let templateUsed = false;
   let lastErrorCode: number | undefined;
 
-  // Primer contacto con un número que nunca ha escrito: WhatsApp exige una
-  // plantilla aprobada (ventana de 24h). Si hay plantilla configurada se envía
-  // por plantilla; si no, se intenta texto libre y se informa si Meta rechaza.
-  if (isFirstContact) {
+  const body = parsed.data.body ?? '';
+
+  // Plantilla explícita elegida por el agente en el formulario: se envía tal
+  // cual como primer mensaje (funciona también con números que nunca escribieron).
+  if (parsed.data.templateName) {
+    const parameters = parsed.data.templateParameters ?? [];
+    sent = await sendWhatsAppTemplate(
+      phone,
+      parsed.data.templateName,
+      parsed.data.templateLanguage ?? 'es',
+      parameters
+    );
+    templateUsed = true;
+  } else if (isFirstContact) {
     const config = await prisma.botConfig.findFirst();
     if (config?.outreachTemplateName) {
       const variableCount = config.outreachTemplateVariables ?? 0;
       // Sin variables: solo se envía el texto fijo de la plantilla.
       const parameters = variableCount > 0
-        ? [parsed.data.body, ...Array(Math.max(0, variableCount - 1)).fill('')]
+        ? [body, ...Array(Math.max(0, variableCount - 1)).fill('')]
         : [];
       sent = await sendWhatsAppTemplate(
         phone,
@@ -823,18 +840,18 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
       templateUsed = true;
       if (!sent) {
         // La plantilla falló (nombre mal, rechazada, etc.): intentar texto libre.
-        const detailed = await sendWhatsAppMessageDetailed(phone, parsed.data.body);
+        const detailed = await sendWhatsAppMessageDetailed(phone, body);
         sent = detailed.sent;
         lastErrorCode = detailed.errorCode;
         templateUsed = false;
       }
     } else {
-      const detailed = await sendWhatsAppMessageDetailed(phone, parsed.data.body);
+      const detailed = await sendWhatsAppMessageDetailed(phone, body);
       sent = detailed.sent;
       lastErrorCode = detailed.errorCode;
     }
   } else {
-    const detailed = await sendWhatsAppMessageDetailed(phone, parsed.data.body);
+    const detailed = await sendWhatsAppMessageDetailed(phone, body);
     sent = detailed.sent;
     lastErrorCode = detailed.errorCode;
     if (!sent) {
@@ -843,7 +860,7 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
       if (config?.outreachTemplateName) {
         const variableCount = config.outreachTemplateVariables ?? 0;
         const parameters = variableCount > 0
-          ? [parsed.data.body, ...Array(Math.max(0, variableCount - 1)).fill('')]
+          ? [body, ...Array(Math.max(0, variableCount - 1)).fill('')]
           : [];
         sent = await sendWhatsAppTemplate(
           phone,
@@ -858,7 +875,9 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
 
   const message = await recordOutboundMessage({
     conversationId: conversation.id,
-    body: parsed.data.body,
+    body: parsed.data.templateName
+      ? (parsed.data.templateParameters?.[0] ?? `Plantilla ${parsed.data.templateName}`)
+      : body,
     senderType: 'AGENT',
     deliveryStatus: sent ? 'SENT' : 'FAILED'
   });
@@ -872,7 +891,7 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
       502,
       'WhatsApp message could not be sent',
       templateUsed
-        ? 'La plantilla configurada no pudo enviarse: revisa su nombre, idioma o estado en WhatsApp Manager.'
+        ? 'La plantilla no pudo enviarse: revisa su nombre, idioma o estado en WhatsApp Manager.'
         : 'Si el número nunca ha escrito al negocio, WhatsApp exige una plantilla aprobada (ventana de 24h).'
     );
   }

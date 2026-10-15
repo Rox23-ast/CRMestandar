@@ -235,6 +235,8 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const [checkingContact, setCheckingContact] = useState(false)
   const [checkResult, setCheckResult] = useState<'valid' | 'invalid' | 'error' | null>(null)
   const [checkError, setCheckError] = useState('')
+  const [startTemplate, setStartTemplate] = useState<{ name: string; language: string; variableCount: number } | null>(null)
+  const [startParams, setStartParams] = useState<string[]>([])
   const [quickReplies, setQuickReplies] = useState<{ id: string; label: string; text: string }[]>([])
   const [repliesPanelOpen, setRepliesPanelOpen] = useState(false)
   const [replyLabel, setReplyLabel] = useState('')
@@ -572,16 +574,30 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   const handleStartChat = async (event: FormEvent) => {
     event.preventDefault()
     const phone = newPhone.replace(/[^\d+]/g, '')
-    if (!phone || !newMessage.trim()) return
+    if (!phone) return
+    const payload: Record<string, unknown> = { phone }
+    if (startTemplate) {
+      payload.templateName = startTemplate.name
+      payload.templateLanguage = startTemplate.language
+      if (startTemplate.variableCount > 0) {
+        if (!startParams[0]?.trim()) return
+        payload.templateParameters = startParams
+      }
+    } else {
+      if (!newMessage.trim()) return
+      payload.body = newMessage.trim()
+    }
     try {
       const response = await axios.post(
         `${API_URL}/api/crm/conversations/start`,
-        { phone, body: newMessage.trim() },
+        payload,
         { headers: authHeaders(token) }
       )
       setNewPhone('')
       setNewMessage('')
       setCheckResult(null)
+      setStartTemplate(null)
+      setStartParams([])
       setStartOpen(false)
       await loadConversations(conversationPageRef.current)
       await loadConversation(response.data.conversation.id)
@@ -1007,12 +1023,59 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                 {checkResult === 'error' && (
                   <p className="text-xs text-neutral-darkgray bg-neutral-light/50 border border-neutral-gray rounded-md px-3 py-1.5">{checkError || 'No fue posible verificar el número con WhatsApp.'}</p>
                 )}
-                <input
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Primer mensaje…"
+                <select
+                  value={startTemplate ? `${startTemplate.name}|${startTemplate.language}` : ''}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (!value) {
+                      setStartTemplate(null)
+                      setStartParams([])
+                      return
+                    }
+                    const [name, language] = value.split('|')
+                    const template = inboxTemplates.find((t) => t.name === name && t.language === language)
+                    if (template) {
+                      setStartTemplate(template)
+                      setStartParams(Array(template.variableCount || 0).fill(''))
+                    }
+                  }}
                   className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
-                />
+                >
+                  <option value="">Mensaje de texto</option>
+                  {inboxTemplates.map((template) => (
+                    <option key={`${template.name}-${template.language}`} value={`${template.name}|${template.language}`}>
+                      Plantilla: {template.name} · {template.language}{template.variableCount > 0 ? ` · ${template.variableCount} variable${template.variableCount !== 1 ? 's' : ''}` : ' · texto fijo'}
+                    </option>
+                  ))}
+                </select>
+                {startTemplate && startTemplate.variableCount === 0 && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-1.5">
+                    La plantilla se enviará con su texto fijo (no lleva variables).
+                  </p>
+                )}
+                {startTemplate && startTemplate.variableCount > 0 && (
+                  startParams.map((value, index) => (
+                    <input
+                      key={index}
+                      value={value}
+                      onChange={(e) => {
+                        const next = [...startParams]
+                        next[index] = e.target.value
+                        setStartParams(next)
+                      }}
+                      placeholder={index === 0 ? 'Variable {{1}} (primer mensaje)…' : `Variable {{${index + 1}}}…`}
+                      className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+                    />
+                  ))
+                )}
+                {!startTemplate && (
+                  <input
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Primer mensaje…"
+                    className="w-full border border-neutral-gray rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary bg-white"
+                  />
+                )}
                 <div className="flex gap-2">
                   <button type="submit" className="flex-1 bg-primary text-white px-3 py-1.5 rounded-md text-sm">
                     Iniciar chat
@@ -1025,7 +1088,10 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
             ) : (
               <button
                 type="button"
-                onClick={() => setStartOpen(true)}
+                onClick={() => {
+                  setStartOpen(true)
+                  if (inboxTemplates.length === 0) void loadInboxTemplates()
+                }}
                 className="w-full border border-dashed border-secondary/50 text-secondary px-3 py-1.5 rounded-md text-sm hover:bg-secondary/10 transition-colors"
               >
                 + Nuevo chat con otro número
