@@ -291,7 +291,7 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-neutral-light font-raleway">
+    <div className="flex h-screen h-dvh overflow-hidden bg-neutral-light font-raleway">
       
       {/* Overlay móvil del sidebar */}
       {sidebarOpen && (

@@ -1364,7 +1364,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                   )}
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-6 space-y-3">{selected.messages.map((message) => {
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-3">{selected.messages.map((message) => {
                 const replied = message.replyToMessageId ? selected.messages.find((m) => m.id === message.replyToMessageId) : null
                 const senderLabel = (senderType: string) => senderType === 'CUSTOMER' ? 'Cliente' : senderType === 'BOT' ? 'Bot' : 'Agente'
                 return (
@@ -1400,7 +1400,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                       </>
                     )}
                     {editingMessageId !== message.id && (
-                      <div className={`absolute -top-2 right-2 flex gap-1 transition-opacity opacity-0 group-hover:opacity-100 ${replyTo?.id === message.id ? 'opacity-100' : ''}`}>
+                      <div className={`absolute -top-2 right-2 flex gap-1 transition-opacity opacity-100 lg:opacity-0 lg:group-hover:opacity-100 ${replyTo?.id === message.id ? 'opacity-100' : ''}`}>
                         {message.direction === 'OUTBOUND' && message.type === 'TEXT' && (
                           <button
                             type="button"
@@ -1550,7 +1550,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                     )}
                   </div>
                 )}
-                <form ref={composerFormRef} onSubmit={handleSend} className="p-4 flex gap-3 items-end">
+                <form ref={composerFormRef} onSubmit={handleSend} className="p-3 md:p-4 flex gap-2 md:gap-3 items-end">
                   <input
                     ref={fileInputRef}
                     type="file"
