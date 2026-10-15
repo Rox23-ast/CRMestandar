@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { statusSchema, listAssignableUsers, sendAgentAttachment, sendAgentMessage, sendAgentTemplate, startConversation, getMedia, updateConversationClient, listConversations, getConversation, updateMessage, deleteMessage } from '../conversationController';
+import { statusSchema, listAssignableUsers, sendAgentAttachment, sendAgentMessage, sendAgentTemplate, startConversation, getMedia, updateConversationClient, listConversations, getConversation, updateMessage, deleteMessage, exportMessagesCsv } from '../conversationController';
 import { prisma } from '../../../core/database/prisma';
 import { recordOutboundMessage } from '../../services/conversationService';
 import { uploadWhatsAppMedia, sendWhatsAppMedia, sendWhatsAppMessage, sendWhatsAppMessageDetailed, sendWhatsAppTemplate, getWhatsAppMedia, downloadWhatsAppMedia } from '../../../bot/services/whatsappService';
@@ -11,7 +11,7 @@ jest.mock('../../../core/database/prisma', () => ({
     client: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
     notification: { findMany: jest.fn(), updateMany: jest.fn() },
     conversationStatusConfig: { findMany: jest.fn() },
-    message: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn(), delete: jest.fn() },
+    message: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn(), delete: jest.fn() },
     botConfig: { findFirst: jest.fn() }
   }
 }));
@@ -36,7 +36,7 @@ const mockPrisma = prisma as unknown as {
   client: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
   notification: { findMany: jest.Mock; updateMany: jest.Mock };
   conversationStatusConfig: { findMany: jest.Mock };
-  message: { findUnique: jest.Mock; findFirst: jest.Mock; update: jest.Mock; delete: jest.Mock };
+  message: { findUnique: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock; update: jest.Mock; delete: jest.Mock };
   botConfig: { findFirst: jest.Mock };
 };
 const mockRecordOutbound = recordOutboundMessage as jest.Mock;
@@ -975,5 +975,56 @@ describe('conversationController - updateMessage / deleteMessage', () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockPrisma.message.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('conversationController - exportMessagesCsv', () => {
+  const makeReq = (overrides: Record<string, unknown> = {}) => ({
+    user: { id: 'admin-1', role: 'ADMIN' },
+    query: {},
+    ...overrides
+  }) as never;
+  const makeRes = () => {
+    const res = {
+      set: jest.fn(),
+      send: jest.fn(),
+      status: jest.fn(),
+      json: jest.fn()
+    };
+    res.set.mockReturnValue(res);
+    res.send.mockReturnValue(res);
+    res.status.mockReturnValue(res);
+    res.json.mockReturnValue(res);
+    return res as unknown as Response & { set: jest.Mock; send: jest.Mock; status: jest.Mock; json: jest.Mock };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('exports messages as CSV with headers and escaped values', async () => {
+    mockPrisma.message.findMany.mockResolvedValue([
+      {
+        createdAt: new Date('2026-10-01T10:30:00Z'),
+        direction: 'INBOUND',
+        type: 'TEXT',
+        body: 'Hola; "mudanza"',
+        deliveryStatus: 'RECEIVED',
+        conversation: { client: { name: 'Ana Pérez', phone: '573001112233' } }
+      }
+    ] as never);
+
+    const res = makeRes();
+    await exportMessagesCsv(makeReq(), res);
+
+    expect(mockPrisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { createdAt: 'desc' }, take: 20000 })
+    );
+    expect(res.set).toHaveBeenCalledWith('Content-Type', 'text/csv; charset=utf-8');
+    const sent = res.send.mock.calls[0][0] as string;
+    expect(sent).toContain('Fecha;Cliente;Teléfono;Dirección;Tipo;Mensaje;Entrega');
+    expect(sent).toContain('Ana Pérez');
+    expect(sent).toContain('"Hola; ""mudanza"""');
+    expect(sent).toContain('Recibido');
   });
 });

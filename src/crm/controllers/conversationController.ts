@@ -70,6 +70,13 @@ const updateClientSchema = z.object({
   name: z.string().trim().min(1).max(120).nullable()
 });
 
+const messagesExportSchema = z.object({
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  direction: z.enum(['INBOUND', 'OUTBOUND']).optional(),
+  search: z.string().trim().min(1).max(100).optional()
+});
+
 // MIME aceptados por la Media API de Meta por tipo de mensaje
 // (documentos: cualquier MIME, se validan aparte solo por tamaño).
 const WHATSAPP_ALLOWED_MEDIA_TYPES: Record<string, string[]> = {
@@ -902,8 +909,7 @@ export const startConversation = async (req: AuthenticatedRequest, res: Response
  * GET /api/crm/media/:id
  * Proxy autenticado para visualizar/descargar el binario de un media de
  * WhatsApp (imagen, video, audio o documento recibido del cliente).
- */
-export const getMedia = async (req: AuthenticatedRequest, res: Response) => {
+ */export const getMedia = async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return problem(res, 401, 'Authentication required');
   const parsedId = mediaIdSchema.safeParse(req.params.id);
   if (!parsedId.success) return problem(res, 400, 'Media ID is invalid');
@@ -929,6 +935,79 @@ export const getMedia = async (req: AuthenticatedRequest, res: Response) => {
   res.set('Content-Type', media.mimeType);
   res.set('Cache-Control', 'private, max-age=3600');
   return res.send(buffer);
+};
+
+const escapeCsvCell = (value: string) =>
+  /[";\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+
+const formatCsvDateTime = (date: Date) => {
+  const parts = new Intl.DateTimeFormat('es-CO', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+};
+
+/**
+ * GET /api/crm/messages/export (solo ADMIN)
+ * Exporta los mensajes del historial a CSV (fecha, cliente, teléfono,
+ * dirección, tipo, texto y estado de entrega) con filtros opcionales.
+ */
+export const exportMessagesCsv = async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return problem(res, 401, 'Authentication required');
+  const parsed = messagesExportSchema.safeParse(req.query);
+  if (!parsed.success) return problem(res, 400, 'Invalid export filters');
+
+  const { dateFrom, dateTo, direction, search } = parsed.data;
+  const where: any = {};
+  if (dateFrom || dateTo) {
+    where.createdAt = {};
+    if (dateFrom) where.createdAt.gte = new Date(`${dateFrom}T00:00:00.000Z`);
+    if (dateTo) where.createdAt.lte = new Date(`${dateTo}T23:59:59.999Z`);
+  }
+  if (direction) where.direction = direction;
+  if (search) {
+    where.conversation = {
+      client: {
+        OR: [
+          { name: { contains: search } },
+          { phone: { contains: search } }
+        ]
+      }
+    };
+  }
+
+  const messages = await prisma.message.findMany({
+    where,
+    include: {
+      conversation: { select: { client: { select: { name: true, phone: true } } } }
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 20000
+  });
+
+  const rows: string[][] = [
+    ['Fecha', 'Cliente', 'Teléfono', 'Dirección', 'Tipo', 'Mensaje', 'Entrega'],
+    ...messages.map((message) => [
+      formatCsvDateTime(message.createdAt),
+      message.conversation.client.name ?? '',
+      message.conversation.client.phone,
+      message.direction === 'INBOUND' ? 'Recibido' : 'Enviado',
+      message.type,
+      message.body ?? '',
+      message.deliveryStatus
+    ])
+  ];
+
+  const csv = rows.map((row) => row.map(escapeCsvCell).join(';')).join('\r\n');
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="mensajes-${new Date().toISOString().slice(0, 10)}.csv"`);
+  return res.send(`\uFEFF${csv}`);
 };
 
 export const listNotifications = async (req: AuthenticatedRequest, res: Response) => {

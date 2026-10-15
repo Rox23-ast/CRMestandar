@@ -97,7 +97,8 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
   const [includeFinal, setIncludeFinal] = useState(false);
   const [statusConfigs, setStatusConfigs] = useState<BusinessStatusConfig[]>([]);
   const [assignableUsers, setAssignableUsers] = useState<{ id: string; name: string; role: string }[]>([]);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState(false)
+  const [exportingMessages, setExportingMessages] = useState(false);
 
   const canAssign = userRole === 'ADMIN' || userRole === 'MARKETING_DIRECTOR';
 
@@ -214,6 +215,31 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
     }
   };
 
+  const handleExportMessages = async () => {
+    setExportingMessages(true);
+    try {
+      const params: Record<string, string> = {};
+      if (search) params.search = search;
+      if (dateFrom) params.dateFrom = dateFrom;
+      if (dateTo) params.dateTo = dateTo;
+      const response = await axios.get(`${API_URL}/api/crm/messages/export`, {
+        headers: authHeaders(),
+        params,
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `mensajes-${new Date().toISOString().slice(0, 10)}.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('No fue posible exportar los mensajes.');
+    } finally {
+      setExportingMessages(false);
+    }
+  };
+
   const businessStatusMeta = (code: string | null) => {
     if (!code) return { label: 'Sin gestión', color: '#94a3b8' };
     const config = statusConfigs.find((s) => s.code === code);
@@ -254,6 +280,17 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             <span>Sincronizar</span>
           </button>
+          {userRole === 'ADMIN' && (
+            <button
+              onClick={() => void handleExportMessages()}
+              disabled={exportingMessages}
+              className="flex items-center space-x-2 border border-neutral-gray text-neutral-dark px-4 py-2 rounded-md text-sm hover:bg-neutral-light/50 transition-colors disabled:opacity-50"
+              title="Exportar todos los mensajes del historial (solo administradores)"
+            >
+              {exportingMessages ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              <span>{exportingMessages ? 'Exportando…' : 'Exportar mensajes'}</span>
+            </button>
+          )}
           <button
             onClick={() => void handleExport()}
             disabled={exporting}

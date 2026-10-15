@@ -42,6 +42,7 @@ import {
   updateConversationStatus,
   updateMessage,
   deleteMessage,
+  exportMessagesCsv,
   updateSlaPolicy
 } from './controllers/conversationController';
 import { listLeads, exportLeads } from './controllers/leadController';
@@ -80,6 +81,7 @@ crmRouter.get('/assignable-users', requireCrmRole('ADMIN', 'MARKETING_DIRECTOR')
 crmRouter.patch('/conversations/:id/status', updateConversationStatus);
 crmRouter.patch('/messages/:id', updateMessage);
 crmRouter.delete('/messages/:id', deleteMessage);
+crmRouter.get('/messages/export', requireCrmRole('ADMIN'), exportMessagesCsv);
 crmRouter.post('/conversations/:id/messages', sendAgentMessage);
 crmRouter.post('/conversations/:id/template', sendAgentTemplate);
 crmRouter.post(

@@ -422,7 +422,7 @@ Pestaña "Leads" que muestra **todas las conversaciones** como hoja de cálculo 
 - ADMIN y MARKETING_DIRECTOR: ven todas las conversaciones
 - AGENT: solo conversaciones asignadas a él (el filtro se fuerza por servidor tanto en listado como en total y exportación)
 
-**Exportación:** `/leads/export` responde `text/csv` (separador `;`, BOM UTF-8 para Excel, hasta 10.000 filas) con columnas: Fecha último mensaje, Nombre, Teléfono, Estado, Gestión, Prioridad, Origen, Comercial. Las celdas se escapan (comillas dobles, saltos, `;`).
+**Exportación:** `/leads/export` responde `text/csv` (separador `;`, BOM UTF-8 para Excel, hasta 10.000 filas) con columnas: Fecha último mensaje, Nombre, Teléfono, Estado, Gestión, Prioridad, Origen, Comercial. Las celdas se escapan (comillas dobles, saltos, `;`). Además, `GET /api/crm/messages/export` (solo ADMIN, hasta 20.000 mensajes) exporta el historial completo de `Message` con fecha, cliente, teléfono, dirección, tipo, texto y estado de entrega; el botón "Exportar mensajes" solo aparece para ADMIN.
 
 **Archivos:**
 - `src/crm/services/leadService.ts`: consulta centrada en `Conversation` (`buildConversationWhere` + `toLeadRow`) y builder CSV (`exportLeadsCsv`)
