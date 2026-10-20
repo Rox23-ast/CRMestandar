@@ -120,8 +120,30 @@ const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` })
 
 const isExternalUrl = (value: string) => /^https?:\/\//i.test(value)
 
+// Vista previa inline del PDF (navegador renderiza el PDF en el iframe).
+const PdfPreview = ({ src, external = false }: { src: string; external?: boolean }) => (
+  <div className="w-full">
+    <iframe
+      src={src}
+      title="Documento PDF"
+      className="w-[420px] max-w-full h-72 rounded border border-neutral-gray bg-white"
+    />
+    <div className="flex gap-3 mt-1.5">
+      <a href={src} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs underline text-secondary">
+        Abrir en pestaña
+      </a>
+      {!external && (
+        <a href={src} download className="inline-flex items-center gap-1 text-xs underline text-secondary">
+          Descargar
+        </a>
+      )}
+    </div>
+  </div>
+)
+
 const InboundMedia = ({ token, mediaId, type, body }: { token: string; mediaId: string; type: string; body?: string | null }) => {
   const [url, setUrl] = useState<string | null>(null)
+  const [blobType, setBlobType] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
   // Algunos adjuntos no vienen de la Media API de Meta sino de una URL
   // pública (p. ej. el PDF del estimado que envía el cotizador): esos se
@@ -137,6 +159,7 @@ const InboundMedia = ({ token, mediaId, type, body }: { token: string; mediaId: 
       .then((response) => {
         if (cancelled) return
         objectUrl = URL.createObjectURL(response.data)
+        setBlobType((response.data as Blob).type)
         setUrl(objectUrl)
       })
       .catch(() => {
@@ -150,6 +173,14 @@ const InboundMedia = ({ token, mediaId, type, body }: { token: string; mediaId: 
 
   if (!mediaId || failed) return <p>{body || `Archivo ${type.toLowerCase()} recibido.`}</p>
   if (external) {
+    if (type === 'DOCUMENT') {
+      return (
+        <div>
+          {body && <p className="mb-2">{body}</p>}
+          <PdfPreview src={mediaId} external />
+        </div>
+      )
+    }
     return (
       <div>
         {body && <p className="mb-2">{body}</p>}
@@ -201,6 +232,14 @@ const InboundMedia = ({ token, mediaId, type, body }: { token: string; mediaId: 
     )
   }
   if (type === 'DOCUMENT') {
+    if (blobType === 'application/pdf') {
+      return (
+        <div>
+          {body && <p className="mb-2">{body}</p>}
+          <PdfPreview src={url!} />
+        </div>
+      )
+    }
     return (
       <div>
         {body && <p className="mb-2">{body}</p>}
