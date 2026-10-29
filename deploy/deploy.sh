@@ -50,6 +50,10 @@ fi
 echo "==> git pull"
 git pull --ff-only
 
+echo "==> Asegurando permisos del volumen SQLite (el contenedor corre como usuario no-root)"
+docker volume create deploy_sqlite_data >/dev/null
+docker run --rm -v deploy_sqlite_data:/data node:22.23.4-alpine chown -R 1000:1000 /data
+
 echo "==> Compilando y desplegando el backend CRM (ejecuta prisma migrate deploy al arrancar)"
 docker compose -f "$COMPOSE_FILE" up -d --build app
 

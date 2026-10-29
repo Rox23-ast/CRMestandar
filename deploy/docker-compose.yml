@@ -19,7 +19,9 @@ services:
       - mudanzas_net
 
   nginx:
-    image: nginx:alpine
+    # Pinned stable branch (patched 2026-10-22). Update this tag deliberately
+    # when a new nginx security release is published.
+    image: nginx:1.30.6-alpine
     container_name: mudanzas_proxy
     restart: always
     ports:

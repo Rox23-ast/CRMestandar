@@ -478,8 +478,19 @@ El `nginx.conf` base es para producción (SSL con certificados Let's Encrypt de 
 - `deploy/nginx.local.conf`: puerto 80 sin SSL, proxy a `app:3000`, oculta cabeceras COOP/COEP/Origin-Agent-Cluster.
 - `deploy/docker-compose.override.yml`: lo carga Compose automáticamente en local (expone además `3000:3000` del backend). En el VPS se ejecuta `docker compose -f docker-compose.yml up -d` (sin override) para usar la config con SSL.
 - **Cotizador co-desplegado:** el stack del cotizador (repo aparte) se une a la red externa `deploy_mudanzas_net` con `container_name: cotizador-api` y `cotizador-web`, sin publicar 80/443. El nombre de la red está fijado explícitamente con `name: deploy_mudanzas_net` en el compose del CRM para que no dependa del nombre del proyecto. Su API queda en el puerto interno 3001 y su web en el 80 interno (vía `VITE_BASE=/cotizador/`). El servicio `crm-mock` del cotizador es solo de desarrollo local y no se despliega en el VPS. Orden de despliegue: subir el cotizador primero, luego recargar Nginx (`nginx -s reload`); gracias al resolver por petición, el orden no es crítico.
-- **Script de despliegue:** `deploy/deploy.sh` automatiza el VPS: `git pull --ff-only`, compila y recrea el backend (`up -d --build app`, el contenedor ejecuta `prisma migrate deploy` al arrancar), recarga Nginx (`nginx -t` + `nginx -s reload`), verifica `https://127.0.0.1/health` y opcionalmente despliega el cotizador con `./deploy.sh --cotizador <dir>`. Requiere `.env` en la raíz del repo en el servidor.
+- **Script de despliegue:** `deploy/deploy.sh` automatiza el VPS: `git pull --ff-only`, ajusta la propiedad del volumen SQLite (`deploy_sqlite_data` → uid/gid 1000) porque el contenedor corre como usuario no-root, compila y recrea el backend (`up -d --build app`, el contenedor ejecuta `prisma migrate deploy` al arrancar), recarga Nginx (`nginx -t` + `nginx -s reload`), verifica `https://127.0.0.1/health` y opcionalmente despliega el cotizador con `./deploy.sh --cotizador <dir>`. Requiere `.env` en la raíz del repo en el servidor.
+
+### 13.4 Política de parches y blindaje (Octubre 2026)
+
+Respuesta a las alertas de octubre de 2026 (PHP "php2shell" y Node.js):
+
+- **Runtime fijado:** las tres etapas del `deploy/Dockerfile` usan `node:22.23.4-alpine` (parche del 21-oct-2026: CVE-2026-111497 y el resto de la línea 22). Se eliminó `node:20-alpine` del frontend-builder porque Node 20 llegó a EOL en abril de 2026 y no recibe parches. La imagen de Nginx está fijada en `nginx:1.30.6-alpine` (rama estable parcheada); actualizarla deliberadamente ante cada release de seguridad.
+- **Imagen mínima y no-root:** la etapa `production` instala solo dependencias de producción (`npm ci --omit=dev`; `prisma` pasó a `dependencies` porque el entrypoint ejecuta `prisma migrate deploy`) y arranca con `USER node` (uid 1000). Las herramientas de desarrollo (jest, ts-node-dev, handlebars, etc.) ya no viajan en la imagen final.
+- **Dependencias:** backend con `express@5.3.x` (arrastra `proxy-addr@2.0.8`, `body-parser@2.4.0`, `qs@6.16+`) y `zod@4.6.7`; frontend con `axios@1.21+`, `vite@8.3.5+` y `follow-redirects@1.16.1+`. `npm audit --omit=dev` en el backend y `npm audit` en el frontend reportan **0 vulnerabilidades**.
+- **Gates de seguridad:** `scripts/verify-commit.ps1` incluye un paso 3 que ejecuta `npm audit --audit-level=high` (backend con `--omit=dev`, frontend completo) y aborta el commit ante vulnerabilidades altas o críticas. `.github/workflows/security-audit.yml` repite la auditoría semanalmente y en cambios de manifiestos; `.github/dependabot.yml` abre PRs semanales para npm (raíz y frontend) y las imágenes Docker.
+- **Hardening de Nginx:** `server_tokens off`; TLS restringido a `TLSv1.2`/`TLSv1.3`, `ssl_session_tickets off` y OCSP stapling con `chain.pem`; cabeceras `Strict-Transport-Security`, `X-Content-Type-Options` y `Referrer-Policy` en las respuestas del proxy.
+- **Cotizador (PHP, repo aparte):** debe actualizarse a PHP `8.2.35+`, `8.3.36+`, `8.4.27+` o `8.5.12+` según su línea (CVE-2026-109618/109619, RCE sin autenticación). Mientras no se pueda redesplegar, la mitigación es `session.upload_progress.enabled=0` en su `php.ini` (CVE-2026-115560). Verificar con `docker exec cotizador-api php -v` tras el despliegue.
 
 ---
 
-*Última actualización: Septiembre 2026*
+*Última actualización: Octubre 2026*
