@@ -51,8 +51,14 @@ echo "==> git pull"
 git pull --ff-only
 
 echo "==> Asegurando permisos del volumen SQLite (el contenedor corre como usuario no-root)"
-docker volume create deploy_sqlite_data >/dev/null
-docker run --rm -v deploy_sqlite_data:/data node:22.23.4-alpine chown -R 1000:1000 /data
+# El nombre físico del volumen depende del proyecto Compose: se resuelve desde
+# el contenedor actual y, si aún no existe, se usa el prefijo por defecto.
+SQLITE_VOLUME="$(docker inspect mudanzas_backend --format '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Name}}{{end}}{{end}}' 2>/dev/null || true)"
+if [[ -z "$SQLITE_VOLUME" ]]; then
+  SQLITE_VOLUME="deploy_sqlite_data"
+fi
+docker volume create "$SQLITE_VOLUME" >/dev/null
+docker run --rm -v "$SQLITE_VOLUME:/data" node:22.23.4-alpine chown -R 1000:1000 /data
 
 echo "==> Compilando y desplegando el backend CRM (ejecuta prisma migrate deploy al arrancar)"
 docker compose -f "$COMPOSE_FILE" up -d --build app
