@@ -905,10 +905,10 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative bg-neutral-light">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative bg-canvas">
       {error && <div className="bg-red-50 text-red-700 px-6 py-3 text-sm flex-shrink-0">{error}</div>}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] w-full mx-auto overflow-hidden">
-        <section className={`bg-white border-r border-neutral-gray flex-col h-full overflow-hidden ${mobileView === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
+        <section className={`bg-surface border-r border-line flex-col h-full overflow-hidden ${mobileView === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
           <div className="p-4 border-b border-neutral-gray flex-shrink-0 flex justify-between items-center">
             <div>
               <p className="text-xs uppercase tracking-wider text-neutral-darkgray">Conversaciones</p>
@@ -1224,7 +1224,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
           {conversations.map((conversation) => {
             const bizInfo = getBusinessStatusInfo(conversation.businessStatus)
             return (
-              <button key={conversation.id} onClick={() => void loadConversation(conversation.id)} className={`w-full text-left p-4 border-b border-neutral-gray hover:bg-neutral-light ${selected?.id === conversation.id ? 'bg-secondary/20 border-l-4 border-l-accent-gold' : ''}`}>
+              <button key={conversation.id} onClick={() => void loadConversation(conversation.id)} className={`w-full text-left p-4 border-b border-line hover:bg-canvas ${selected?.id === conversation.id ? 'bg-secondary-light border-l-4 border-l-secondary' : ''}`}>
                 <div className="flex justify-between gap-2">
                   <span className={`truncate flex items-center gap-2 min-w-0 ${conversation.unread ? 'font-bold text-primary' : ''}`}>
                     {conversation.unread && (
@@ -1290,7 +1290,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
             <div className="flex-1 flex items-center justify-center text-neutral-darkgray"><div className="text-center"><MessageCircle className="w-12 h-12 mx-auto mb-3 text-secondary" /><p>Selecciona una conversación para ver el historial.</p></div></div>
           ) : (
             <>
-              <div className="bg-white border-b border-neutral-gray p-5 flex flex-wrap justify-between gap-4">
+              <div className="bg-surface border-b border-line p-5 flex flex-wrap justify-between gap-4">
                 <div className="min-w-0">
                   <button
                     type="button"
@@ -1407,7 +1407,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                 const replied = message.replyToMessageId ? selected.messages.find((m) => m.id === message.replyToMessageId) : null
                 const senderLabel = (senderType: string) => senderType === 'CUSTOMER' ? 'Cliente' : senderType === 'BOT' ? 'Bot' : 'Agente'
                 return (
-                  <div key={message.id} className={`group relative max-w-[80%] rounded-lg p-3 text-sm ${message.direction === 'OUTBOUND' ? 'ml-auto bg-primary text-white' : 'bg-white border border-neutral-gray text-neutral-dark'}`}>
+                  <div key={message.id} className={`group relative max-w-[80%] rounded-lg p-3 text-sm ${message.direction === 'OUTBOUND' ? 'ml-auto bg-primary text-white' : 'bg-surface border border-line text-ink'}`}>
                     {replied && (
                       <div className={`mb-2 px-2 py-1 rounded border-l-2 text-[11px] ${message.direction === 'OUTBOUND' ? 'bg-white/10 border-white/60 text-white/85' : 'bg-neutral-light border-secondary text-neutral-darkgray'}`}>
                         <span className="font-semibold">{senderLabel(replied.senderType)}</span>
@@ -1473,7 +1473,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                   </div>
                 )
               })}</div>
-              <div className="bg-white border-t border-neutral-gray">
+              <div className="bg-surface border-t border-line">
                 {replyTo && (
                   <div className="px-4 pt-3 flex items-center gap-2 text-sm">
                     <span className="bg-secondary/10 text-secondary px-2 py-1 rounded flex items-center gap-2 flex-1 min-w-0 border-l-2 border-accent-gold">
@@ -1672,7 +1672,7 @@ export default function CrmInbox({ token, userRole }: { token: string; userRole:
                       </div>
                     )}
                   </div>
-                  <button disabled={recording} className="bg-accent-gold text-white px-4 rounded-md flex items-center gap-2 disabled:opacity-50"><Send className="w-4 h-4" />Enviar</button>
+                  <button disabled={recording} className="bg-secondary hover:bg-primary text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-semibold transition-colors disabled:opacity-50"><Send className="w-4 h-4" />Enviar</button>
                 </form>
               </div>
             </>

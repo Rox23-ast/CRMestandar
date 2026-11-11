@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react'
-import type { FormEvent } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import axios from 'axios'
 import CrmInbox from './CrmInbox'
 import CredentialsSettings from './CredentialsSettings'
@@ -7,26 +6,14 @@ import UserManagement from './UserManagement'
 import AccountSettings from './AccountSettings'
 import StatusSettings from './StatusSettings'
 import Leads from './Leads'
-import { 
-  MessageSquare, 
-  ShieldAlert, 
-  Save, 
-  Bot,
-  Zap,
-  Plus,
-  Trash2,
-  ChevronDown,
-  ChevronRight,
-  Key,
-  Inbox,
-  CircleUserRound,
-  LogIn,
-  Users,
-  UserCog,
-  UserCheck,
-  Contact,
-  Menu
-} from 'lucide-react'
+import { MessageSquare, ShieldAlert, Save, Bot, Zap, Plus, Trash2 } from 'lucide-react'
+import { AppShell } from './app/AppShell'
+import { getNavigation, getViewMeta, isBotContentView, type AppView } from './app/navigation'
+import { Button } from './components/ui/Button'
+import { Card } from './components/ui/Card'
+import { LoginPage } from './features/auth/LoginPage'
+import { useSession } from './features/auth/useSession'
+import { installation } from './config/installation'
 
 // Define the shape of our config
 interface CustomRule {
@@ -58,12 +45,8 @@ interface WhatsAppTemplate {
 const API_URL = import.meta.env.VITE_API_URL ?? ''
 
 function App() {
-  const [activePanel, setActivePanel] = useState<'crm' | 'config'>('crm')
-  const isCrmActive = activePanel === 'crm';
-  const [activeTab, setActiveTab] = useState<'messages' | 'personality' | 'rules' | 'dynamic' | 'credentials' | 'users' | 'account' | 'statuses' | 'leads'>('messages')
-  const [configGroupOpen, setConfigGroupOpen] = useState(true)
-  const [adminGroupOpen, setAdminGroupOpen] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { token, name: crmUserName, role: crmUserRole, sessionExpired, login, logout, updateToken } = useSession()
+  const [activeView, setActiveView] = useState<AppView>('inbox')
   const [config, setConfig] = useState<BotConfig>({
     greetingMessage: '',
     awayMessage: '',
@@ -80,36 +63,23 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{show: boolean, message: string}>({show: false, message: ''})
-  
-  // Auth state
-  const [token, setToken] = useState(() => sessionStorage.getItem('crm_token') ?? '')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loginError, setLoginError] = useState('')
-  const [crmUserRole, setCrmUserRole] = useState<string>('')
-  const [crmUserName, setCrmUserName] = useState(() => sessionStorage.getItem('crm_user_name') ?? '')
 
-  useEffect(() => {
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]))
-        setCrmUserRole(payload.role || '')
-      } catch {}
-    } else {
-      setCrmUserRole('')
-    }
-  }, [token])
-
-  const canAccessBotConfig = crmUserRole === 'ADMIN' || crmUserRole === 'MARKETING_DIRECTOR';
-  const isAdmin = crmUserRole === 'ADMIN';
+  const canAccessBotConfig = crmUserRole === 'ADMIN' || crmUserRole === 'MARKETING_DIRECTOR'
+  const navigation = useMemo(() => getNavigation(crmUserRole, installation.modules), [crmUserRole])
+  const availableViews = useMemo(() => navigation.flatMap((group) => group.items.map((item) => item.id)), [navigation])
+  const viewMeta = getViewMeta(activeView)
 
   const handleTokenChange = (newToken: string) => {
-    sessionStorage.setItem('crm_token', newToken)
-    setToken(newToken)
+    updateToken(newToken)
   }
 
   useEffect(() => {
-    // Fetch initial config
+    if (!availableViews.includes(activeView)) {
+      setActiveView(availableViews[0] ?? 'inbox')
+    }
+  }, [activeView, availableViews])
+
+  useEffect(() => {
     const fetchConfig = async () => {
       if (!token || !canAccessBotConfig) {
         setLoading(false)
@@ -120,7 +90,6 @@ function App() {
           headers: { Authorization: `Bearer ${token}` }
         })
         const data = response.data
-        // Asegurarnos que customRules sea un array
         if (!data.customRules) data.customRules = []
         if (data.outreachTemplateName === undefined) data.outreachTemplateName = null
         if (!data.outreachTemplateLanguage) data.outreachTemplateLanguage = 'es'
@@ -135,25 +104,9 @@ function App() {
     fetchConfig()
   }, [token, canAccessBotConfig])
 
-  const handleLogin = async (event: FormEvent) => {
-    event.preventDefault()
-    setLoginError('')
-    try {
-      const response = await axios.post(`${API_URL}/api/crm/auth/login`, { email, password })
-      sessionStorage.setItem('crm_token', response.data.token)
-      sessionStorage.setItem('crm_user_name', response.data.name)
-      setToken(response.data.token)
-      setCrmUserName(response.data.name)
-    } catch {
-      setLoginError('Credenciales inválidas o usuario no configurado.')
-    }
-  }
-
   const handleLogout = () => {
-    sessionStorage.removeItem('crm_token')
-    sessionStorage.removeItem('crm_user_name')
-    setToken('')
-    setCrmUserName('')
+    logout()
+    setActiveView('inbox')
   }
 
   const handleAddRule = () => {
@@ -232,303 +185,59 @@ function App() {
     }))
   }
 
-  const getHeaderTitle = () => {
-    if (activePanel === 'crm' && activeTab === 'leads') return 'Leads';
-    if (activePanel === 'config') {
-      switch (activeTab) {
-        case 'messages': return 'Mensajes y Textos';
-        case 'personality': return 'Personalidad IA';
-        case 'dynamic': return 'Respuestas Rápidas';
-        case 'rules': return 'Reglas y Límites';
-        case 'credentials': return 'Configuración de APIs';
-        case 'users': return 'Gestión de Usuarios';
-        case 'account': return 'Mi Cuenta';
-        case 'statuses': return 'Estados de Gestión';
-      }
-    }
-    return 'Bandeja CRM';
-  };
-
-  const getHeaderSubtitle = () => {
-    if (activePanel === 'crm' && activeTab === 'leads') return 'Vista consolidada de clientes potenciales';
-    if (activePanel === 'config') {
-      switch (activeTab) {
-        case 'messages': return 'Configura los mensajes que el bot envía a los clientes';
-        case 'personality': return 'Define la personalidad y comportamiento de la IA';
-        case 'dynamic': return 'Configura respuestas automáticas por palabras clave';
-        case 'rules': return 'Define límites y restricciones para el bot';
-        case 'credentials': return 'Gestiona credenciales de WhatsApp y OpenAI';
-        case 'users': return 'Crea, edita y gestiona usuarios del CRM';
-        case 'account': return 'Cambia tu contraseña y gestiona tu sesión';
-        case 'statuses': return 'Configura los estados de gestión de conversaciones';
-      }
-    }
-    return 'Seguimiento de conversaciones y clientes';
-  };
-
   if (!token) {
+    return <LoginPage onLogin={login} sessionExpired={sessionExpired} />
+  }
+
+  if (loading) {
     return (
-      <div className="min-h-screen bg-neutral-light flex items-center justify-center p-6 font-raleway">
-        <form onSubmit={handleLogin} className="w-full max-w-md bg-white rounded-xl border border-neutral-gray shadow-sm p-8 space-y-5">
-          <div className="flex items-center gap-3 text-primary">
-            <CircleUserRound className="w-8 h-8" />
-            <div>
-              <h2 className="font-cormorant text-3xl">Acceso CRM</h2>
-              <p className="text-xs text-neutral-darkgray">Bandeja de seguimiento de Mudanzas Chico</p>
-            </div>
-          </div>
-          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required placeholder="Correo" className="w-full border border-neutral-gray rounded-md p-3" />
-          <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required placeholder="Contraseña" className="w-full border border-neutral-gray rounded-md p-3" />
-          {loginError && <p className="text-sm text-red-600">{loginError}</p>}
-          <button className="w-full bg-primary text-white rounded-md py-3 flex items-center justify-center gap-2"><LogIn className="w-4 h-4" />Ingresar</button>
-        </form>
+      <div className="flex min-h-screen items-center justify-center bg-canvas text-sm font-semibold text-primary">
+        Cargando…
       </div>
     )
   }
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-neutral-light text-primary">Cargando...</div>;
-  }
+  const saveAction = isBotContentView(activeView) ? (
+    <Button onClick={() => void handleSave()} disabled={saving} size="sm" className="px-3">
+      <Save className="h-4 w-4" />
+      <span className="hidden sm:inline">{saving ? 'Guardando…' : 'Guardar cambios'}</span>
+    </Button>
+  ) : undefined
 
   return (
-    <div className="flex h-screen h-dvh overflow-hidden bg-neutral-light font-raleway">
-      
-      {/* Overlay móvil del sidebar */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
-      )}
+    <AppShell
+      navigation={navigation}
+      activeView={activeView}
+      onNavigate={setActiveView}
+      title={viewMeta.title}
+      subtitle={viewMeta.subtitle}
+      userName={crmUserName}
+      userRole={crmUserRole}
+      onLogout={handleLogout}
+      headerActions={saveAction}
+    >
+      {activeView === 'inbox' && <CrmInbox token={token} userRole={crmUserRole} />}
 
-      {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-primary text-white flex flex-col transform transition-transform duration-200 md:static md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6 flex flex-col items-center border-b border-primary-light">
-          <div className="w-40 mb-4 flex justify-center">
-            <img src={`${import.meta.env.BASE_URL}logo-1.png`} alt="Mudanzas Chico Logo" className="max-w-full h-auto object-contain" />
-          </div>
-          <h1 className="font-cormorant text-2xl font-medium tracking-wide text-center">Mudanzas Chico</h1>
-        </div>
-        
-        <nav className="flex-1 px-4 py-6 space-y-4 overflow-y-auto">
-          {/* CRM Group */}
-          <div>
-            <p className="px-4 py-2 text-xs uppercase tracking-wider text-neutral-gray">CRM</p>
-            <button
-              onClick={() => { setActivePanel('crm'); setActiveTab('messages'); setSidebarOpen(false); }}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${
-                isCrmActive ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
-              }`}
-            >
-              <Inbox className="w-5 h-5" />
-              <span>Bandeja CRM</span>
-            </button>
-            <button
-              onClick={() => { setActivePanel('crm'); setActiveTab('leads'); setSidebarOpen(false); }}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${
-                isCrmActive && activeTab === 'leads' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
-              }`}
-            >
-              <Contact className="w-5 h-5" />
-              <span>Leads</span>
-            </button>
-          </div>
-
-          {/* Configuración CRM Group */}
-          {canAccessBotConfig && (
-            <div>
-              <button
-                onClick={() => setConfigGroupOpen(!configGroupOpen)}
-                className="w-full flex items-center justify-between px-4 py-2 text-xs uppercase tracking-wider text-neutral-gray hover:text-white transition-colors"
-              >
-                <span>Configuración CRM</span>
-                {configGroupOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              </button>
-              
-              {configGroupOpen && (
-                <div className="space-y-1 pl-2 mt-1 border-l border-primary-light">
-                  <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('statuses'); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
-                      activePanel === 'config' && activeTab === 'statuses' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
-                    }`}
-                  >
-                    <UserCheck className="w-5 h-5" />
-                    <span>Estados de Gestión</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Configuración del Chatbot Group */}
-          {canAccessBotConfig && (
-            <div>
-              <button
-                onClick={() => setConfigGroupOpen(!configGroupOpen)}
-                className="w-full flex items-center justify-between px-4 py-2 text-xs uppercase tracking-wider text-neutral-gray hover:text-white transition-colors"
-              >
-                <span>Configuración del Chatbot</span>
-                {configGroupOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              </button>
-              
-              {configGroupOpen && (
-                <div className="space-y-1 pl-2 mt-1 border-l border-primary-light">
-                  <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('messages'); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
-                      activePanel === 'config' && activeTab === 'messages' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
-                    }`}
-                  >
-                    <MessageSquare className="w-5 h-5" />
-                    <span>Mensajes y Textos</span>
-                  </button>
-                  
-                  <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('personality'); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
-                      activePanel === 'config' && activeTab === 'personality' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
-                    }`}
-                  >
-                    <Bot className="w-5 h-5" />
-                    <span>Personalidad IA</span>
-                  </button>
-                  
-                  <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('dynamic'); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
-                      activePanel === 'config' && activeTab === 'dynamic' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
-                    }`}
-                  >
-                    <Zap className="w-5 h-5" />
-                    <span>Respuestas Rápidas</span>
-                  </button>
-                  
-                  <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('rules'); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
-                      activePanel === 'config' && activeTab === 'rules' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
-                    }`}
-                  >
-                    <ShieldAlert className="w-5 h-5" />
-                    <span>Reglas y Límites</span>
-                  </button>
-                  
-                  {isAdmin && (
-                    <button 
-                      onClick={() => { setActivePanel('config'); setActiveTab('credentials'); setSidebarOpen(false); }}
-                      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
-                        activePanel === 'config' && activeTab === 'credentials' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
-                      }`}
-                    >
-                      <Key className="w-5 h-5" />
-                      <span>Configuración de APIs</span>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Administración Group */}
-          {isAdmin && (
-            <div>
-              <button
-                onClick={() => setAdminGroupOpen(!adminGroupOpen)}
-                className="w-full flex items-center justify-between px-4 py-2 text-xs uppercase tracking-wider text-neutral-gray hover:text-white transition-colors"
-              >
-                <span>Administración</span>
-                {adminGroupOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              </button>
-              
-              {adminGroupOpen && (
-                <div className="space-y-1 pl-2 mt-1 border-l border-primary-light">
-                  <button 
-                    onClick={() => { setActivePanel('config'); setActiveTab('users'); setSidebarOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors text-sm ${
-                      activePanel === 'config' && activeTab === 'users' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
-                    }`}
-                  >
-                    <Users className="w-5 h-5" />
-                    <span>Usuarios</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Mi Cuenta Group */}
-          <div>
-            <button
-              onClick={() => { setActivePanel('config'); setActiveTab('account'); setSidebarOpen(false); }}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${
-                activePanel === 'config' && activeTab === 'account' ? 'bg-primary-light text-white' : 'text-neutral-gray hover:bg-primary-light/50'
-              }`}
-            >
-              <UserCog className="w-5 h-5" />
-              <span>Mi Cuenta</span>
-            </button>
-          </div>
-        </nav>
-      </aside>
-
-      {/* Main Content */}
-  <main className="flex-1 flex flex-col">
-    
-    {/* Header */}
-    <header className="bg-white border-b border-neutral-gray px-4 md:px-8 py-4 md:py-6 flex justify-between items-center gap-4 sticky top-0 z-10">
-      <div className="flex items-center gap-3 min-w-0">
-        <button
-          type="button"
-          onClick={() => setSidebarOpen(true)}
-          className="md:hidden p-2 text-primary border border-neutral-gray rounded-md"
-          title="Abrir menú"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-        <div className="min-w-0">
-          <h2 className="text-xl md:text-2xl font-cormorant text-primary font-medium truncate">{getHeaderTitle()}</h2>
-          <p className="text-xs md:text-sm text-neutral-darkgray italic mt-1 truncate">{getHeaderSubtitle()}</p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 md:gap-4 flex-shrink-0">
-        {crmUserName && (
-          <span className="hidden sm:inline text-sm text-neutral-darkgray">Bienvenido, <span className="font-medium text-primary">{crmUserName}</span></span>
-        )}
-        {activePanel === 'config' && activeTab !== 'credentials' && activeTab !== 'users' && activeTab !== 'account' && activeTab !== 'statuses' && (
-          <button 
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center space-x-2 bg-accent-gold hover:bg-accent-gold/90 text-white px-6 py-2.5 rounded-md transition-colors font-medium shadow-sm disabled:opacity-50"
-          >
-            <Save className="w-4 h-4" />
-            <span>{saving ? 'Guardando...' : 'Guardar Cambios'}</span>
-          </button>
-        )}
-        <button onClick={handleLogout} className="text-neutral-darkgray hover:text-primary transition-colors text-sm font-medium">Salir</button>
-      </div>
-    </header>
-
-    {/* Content Area */}
-    <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-      {activePanel === 'crm' ? (
-        activeTab === 'leads' ? (
-          <div className="p-4 md:p-8 overflow-y-auto w-full mx-auto">
+      {activeView === 'leads' && (
+        <div className="w-full overflow-y-auto p-4 md:p-8">
+          <div className="mx-auto w-full max-w-7xl">
             <Leads token={token} userRole={crmUserRole} />
           </div>
-        ) : (
-          <CrmInbox token={token} userRole={crmUserRole} />
-        )
-      ) : (
-        <div className="p-4 md:p-8 max-w-4xl overflow-y-auto w-full mx-auto">
-          {/* Toast Notification */}
-          {toast.show && (
-            <div className="fixed top-24 right-8 bg-primary text-white px-6 py-3 rounded shadow-lg animate-fade-in-down z-50">
-              {toast.message}
-            </div>
-          )}
+        </div>
+      )}
 
-          <div className="bg-white rounded-xl shadow-sm border border-neutral-gray p-8">
+      {isBotContentView(activeView) && (
+        <div className="h-full overflow-y-auto p-4 md:p-8">
+          <div className="mx-auto w-full max-w-4xl">
+            {toast.show && (
+              <div className="mb-4 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-white shadow-lg animate-fade-in-down">
+                {toast.message}
+              </div>
+            )}
+            <Card className="p-6 md:p-8">
             
             {/* Tab 1: Messages */}
-            {activeTab === 'messages' && (
+            {activeView === 'bot-messages' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex items-center space-x-3 border-b border-neutral-gray pb-4 mb-6">
                   <MessageSquare className="w-6 h-6 text-secondary" />
@@ -645,7 +354,7 @@ function App() {
             )}
 
             {/* Tab 2: Personality */}
-            {activeTab === 'personality' && (
+            {activeView === 'bot-personality' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex items-center space-x-3 border-b border-neutral-gray pb-4 mb-6">
                   <Bot className="w-6 h-6 text-secondary" />
@@ -670,7 +379,7 @@ function App() {
             )}
 
             {/* Tab 3: Rules */}
-            {activeTab === 'rules' && (
+            {activeView === 'bot-rules' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex items-center space-x-3 border-b border-neutral-gray pb-4 mb-6">
                   <ShieldAlert className="w-6 h-6 text-secondary" />
@@ -694,7 +403,7 @@ function App() {
             )}
 
             {/* Tab 4: Dynamic Responses (Custom Rules) */}
-            {activeTab === 'dynamic' && (
+            {activeView === 'bot-dynamic' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex items-center justify-between border-b border-neutral-gray pb-4 mb-6">
                   <div className="flex items-center space-x-3">
@@ -771,33 +480,44 @@ function App() {
               </div>
             )}
 
-            {/* Tab 5: Credentials */}
-            {activeTab === 'credentials' && (
-              <CredentialsSettings userRole={crmUserRole} token={token} />
-            )}
-
-            {/* Tab 6: Users (Admin only) */}
-            {activeTab === 'users' && (
-              <UserManagement token={token} />
-            )}
-
-            {/* Tab 7: Account Settings */}
-            {activeTab === 'account' && (
-              <AccountSettings token={token} onTokenChange={handleTokenChange} />
-            )}
-
-            {/* Tab 8: Statuses */}
-            {activeTab === 'statuses' && (
-              <StatusSettings token={token} />
-            )}
-
+            </Card>
           </div>
         </div>
       )}
-    </div>
-  </main>
-</div>
-)
+
+      {activeView === 'statuses' && (
+        <div className="h-full overflow-y-auto p-4 md:p-8">
+          <div className="mx-auto w-full max-w-5xl">
+            <StatusSettings token={token} />
+          </div>
+        </div>
+      )}
+
+      {activeView === 'credentials' && (
+        <div className="h-full overflow-y-auto p-4 md:p-8">
+          <div className="mx-auto w-full max-w-5xl">
+            <CredentialsSettings userRole={crmUserRole} token={token} />
+          </div>
+        </div>
+      )}
+
+      {activeView === 'users' && (
+        <div className="h-full overflow-y-auto p-4 md:p-8">
+          <div className="mx-auto w-full max-w-6xl">
+            <UserManagement token={token} />
+          </div>
+        </div>
+      )}
+
+      {activeView === 'account' && (
+        <div className="h-full overflow-y-auto p-4 md:p-8">
+          <div className="mx-auto w-full max-w-4xl">
+            <AccountSettings token={token} onTokenChange={handleTokenChange} />
+          </div>
+        </div>
+      )}
+    </AppShell>
+  )
 }
 
 export default App

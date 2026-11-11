@@ -265,7 +265,7 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
           <Users className="w-6 h-6 text-secondary" />
           <div>
             <h3 className="text-xl font-cormorant text-primary">Leads</h3>
-            <p className="text-sm text-neutral-gray mt-1">
+            <p className="text-sm text-muted mt-1">
               {total} conversación{total !== 1 ? 'es' : ''} en el sistema
             </p>
           </div>
@@ -305,7 +305,7 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
       {/* Filtros */}
       <div className="bg-white rounded-lg border border-neutral-gray p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2 text-sm text-neutral-gray">
+          <div className="flex items-center space-x-2 text-sm text-muted">
             <Filter className="w-4 h-4" />
             <span className="font-medium">Filtros</span>
             {activeFilterCount > 0 && (
@@ -326,7 +326,7 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
           <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-gray" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
               type="text"
               placeholder="Buscar por nombre o teléfono…"
@@ -401,7 +401,7 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
               onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
               className="flex-1 px-3 py-2 border border-neutral-gray rounded-md text-sm focus:outline-none focus:border-secondary"
             />
-            <span className="text-neutral-gray text-sm">a</span>
+            <span className="text-muted text-sm">a</span>
             <input
               type="date"
               value={dateTo}
@@ -435,10 +435,10 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-6 h-6 animate-spin text-secondary" />
-            <span className="ml-2 text-neutral-gray">Cargando leads…</span>
+            <span className="ml-2 text-muted">Cargando leads…</span>
           </div>
         ) : leads.length === 0 ? (
-          <div className="text-center py-12 text-neutral-gray">
+          <div className="text-center py-12 text-muted">
             No se encontraron conversaciones con los filtros seleccionados.
           </div>
         ) : (
@@ -459,14 +459,14 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
                 const bizInfo = businessStatusMeta(lead.businessStatus);
                 return (
                   <tr key={lead.id} className="hover:bg-neutral-gray/5 transition-colors">
-                    <td className="px-4 py-3 text-sm text-neutral-gray whitespace-nowrap">
+                    <td className="px-4 py-3 text-sm text-muted whitespace-nowrap">
                       {formatDateTime(lead.lastMessageAt)}
                     </td>
                     <td className="px-4 py-3">
                       <p className="text-sm font-medium text-primary">
                         {lead.client.name || 'Sin nombre'}
                       </p>
-                      <p className="text-xs text-neutral-gray">{lead.client.phone}</p>
+                      <p className="text-xs text-muted">{lead.client.phone}</p>
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-sm text-neutral-dark">{STATUS_LABELS[lead.status] || lead.status}</span>
@@ -490,19 +490,19 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
                           Pauta
                         </span>
                       ) : (
-                        <span className="text-sm text-neutral-gray">Orgánico</span>
+                        <span className="text-sm text-muted">Orgánico</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
                       {lead.assignedUser ? (
                         <div className="text-sm">
                           <p className="text-primary">{lead.assignedUser.name}</p>
-                          <p className="text-xs text-neutral-gray">
+                          <p className="text-xs text-muted">
                             {lead.assignedUser.role === 'MARKETING_DIRECTOR' ? 'Directora' : 'Comercial'}
                           </p>
                         </div>
                       ) : (
-                        <span className="text-xs text-neutral-gray italic">Sin asignar</span>
+                        <span className="text-xs text-muted italic">Sin asignar</span>
                       )}
                     </td>
                   </tr>
@@ -516,21 +516,21 @@ export default function Leads({ token, userRole }: { token: string; userRole: st
       {/* Paginación */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
-          <p className="text-sm text-neutral-gray">
+          <p className="text-sm text-muted">
             Página {page} de {totalPages} · {total} resultados
           </p>
           <div className="flex space-x-2">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="p-2 rounded-md border border-neutral-gray text-neutral-gray hover:bg-neutral-gray/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-2 rounded-md border border-neutral-gray text-muted hover:bg-neutral-gray/10 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="p-2 rounded-md border border-neutral-gray text-neutral-gray hover:bg-neutral-gray/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-2 rounded-md border border-neutral-gray text-muted hover:bg-neutral-gray/10 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

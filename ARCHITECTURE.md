@@ -1,10 +1,10 @@
-# Arquitectura de Mudanzas Chico
+# Arquitectura de G Consultores CRM
 
-Este documento describe la arquitectura, estructura y decisiones de diseño del proyecto backend "Mudanzas Chico". Es un **documento vivo** que debe ser actualizado continuamente a medida que el proyecto evolucione y se implementen nuevas características.
+Este documento describe la arquitectura, estructura y decisiones de diseño del CRM estándar de **G Consultores**. Es un **documento vivo** que debe ser actualizado continuamente a medida que el proyecto evolucione y se implementen nuevas características.
 
 ## 1. Visión General
 
-El proyecto es una solución completa para "Mudanzas Chico", dividida en:
+El proyecto es una plantilla de CRM reutilizable por cliente, actualmente desplegada para "Mudanzas Chico", dividida en:
 - **Backend (API RESTful):** Node.js, Express y TypeScript.
 - **Frontend (Panel de Admin):** React (Vite) + TypeScript y Tailwind CSS.
 
@@ -92,6 +92,40 @@ Las rutas CRM, excepto `auth/bootstrap` y `auth/login`, requieren un JWT Bearer 
 - **No leídas primero:** el estado "no leído" de una conversación persiste en `Notification.readAt` (por usuario o rol). `listConversations` calcula los ids con notificaciones sin leer, los coloca al inicio de la **página 1** con el flag `unread: true` y devuelve `unreadCount` para la insignia; en páginas posteriores las no leídas no se repiten y el `skip` descuenta las ya mostradas. Abrir la conversación (`getConversation`) marca sus notificaciones como leídas, por lo que el orden y la insignia sobreviven recargas de página.
 - **Paginación de la bandeja:** la lista carga 500 conversaciones por página (el backend admite hasta 500) y muestra una barra fija "Página X de Y" con botones anterior/siguiente al pie del listado. El polling (30 s), el SSE y las acciones sobre conversaciones refrescan la página en curso; cambiar cualquier filtro vuelve a la página 1. Así ADMIN y MARKETING_DIRECTOR (sin filtro de asignación) navegan todas las conversaciones, no solo las primeras 500.
 - **Filtros de la bandeja:** búsqueda, estado de gestión, origen, "Ver finalizadas", "Solo no leídas" (todos los roles; backend `unreadOnly` que restringe a conversaciones con notificaciones sin leer) y "Asesor" (solo ADMIN/MARKETING_DIRECTOR, `assignedUserId` o la opción "Sin asignar" vía `unassignedOnly` → `assignedUserId: null`; el listado de asesores viene de `/api/crm/assignable-users`).
+
+## 5.1 Frontend estándar por cliente (Fase 1)
+
+El panel dejó de ser una pantalla monolítica atada a "Mudanzas Chico" y ahora parte de una base reutilizable para instalaciones independientes. La Fase 1 conserva la API y los flujos existentes, pero separa configuración, identidad visual, sesión, navegación y layout.
+
+### Configuración de instalación
+
+- `frontend/src/config/installation.ts` concentra nombre del cliente, marca del proveedor, logos, colores, idioma, zona horaria, moneda, módulos habilitados, modo del bot y URL del cotizador.
+- Los recursos de marca viven en `frontend/public/brand/`: logo a color, símbolo blanco para fondos oscuros y favicon de G Consultores.
+- La marca del proveedor es **G Consultores**. La instalación actual mantiene `clientName: "Mudanzas Chico"` y puede cambiarse sin tocar componentes.
+- Los módulos se controlan con `modules`: `inbox`, `leads`, `quotes`, `dashboard`, `users`, `bot` y `settings`. En esta fase `quotes` y `dashboard` permanecen deshabilitados hasta implementar sus pantallas y endpoints.
+
+### Tema y componentes base
+
+- `frontend/src/config/theme.ts` aplica la configuración al arrancar: variables CSS, `lang`, título del documento, favicon y `theme-color`.
+- `frontend/src/index.css` define los tokens por defecto y las clases compartidas `ui-card`, `ui-btn-*`, `ui-input`, `ui-label`, `ui-eyebrow` y `ui-badge`.
+- `frontend/tailwind.config.js` consume las variables CSS, por lo que los colores de la instalación pueden cambiarse sin recompilar estilos. Los alias heredados (`primary`, `secondary`, `neutral`, `accent-gold`) se mantienen para no romper las pantallas existentes.
+- La tipografía es **Mukta**; los alias `font-cormorant` y `font-raleway` apuntan a Mukta para que las vistas antiguas adopten la identidad sin una migración masiva.
+- Componentes reutilizables: `frontend/src/components/ui/` (Button, Card, Input, Badge) y `frontend/src/components/brand/BrandLogo.tsx`.
+
+### Sesión, acceso y navegación
+
+- `frontend/src/features/auth/useSession.ts` centraliza token, nombre, rol, login, logout, renovación de token y detección de sesión expirada.
+- La expiración se controla por el `exp` del JWT y por un interceptor global de Axios que cierra la sesión ante `401`, excepto en los endpoints de autenticación (`/api/crm/auth/*`).
+- `frontend/src/features/auth/LoginPage.tsx` implementa el acceso con identidad de G Consultores, formulario accesible y mensaje de sesión expirada.
+- `frontend/src/app/navigation.tsx` define las vistas, los grupos de navegación y los permisos por rol. Los ítems se ocultan según los módulos habilitados y el rol (`ADMIN`, `MARKETING_DIRECTOR`, `AGENT`).
+- `frontend/src/app/AppShell.tsx` contiene el sidebar azul, la cabecera, el menú móvil, el usuario activo y el cierre de sesión. `App.tsx` queda como composición de vistas y estado del bot.
+- La bandeja (`CrmInbox.tsx`) conserva SSE, adjuntos, notas de voz, filtros y acciones, pero adopta superficies, bordes y estados seleccionados del nuevo tema.
+
+### Validación de la fase
+
+- Frontend: `npm run build` y `npm run lint`.
+- Backend sin cambios funcionales en esta fase; se mantiene `npm run build` y `npm run test` para las siguientes entregas.
+- Criterio de aceptación: cambiar nombre, logos o colores en `installation.ts` actualiza la instalación; login, navegación por rol, sesión expirada y bandeja siguen operativos en escritorio y móvil.
 
 ## 6. Despliegue del Panel Web
 

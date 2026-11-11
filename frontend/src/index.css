@@ -1,15 +1,79 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Raleway:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-primary: 0 27 102;
+  --color-primary-light: 11 47 138;
+  --color-secondary: 0 0 200;
+  --color-secondary-light: 232 237 255;
+  --color-ink: 45 45 45;
+  --color-canvas: 245 247 251;
+  --color-surface: 255 255 255;
+  --color-line: 221 227 238;
+  --color-muted: 102 112 133;
+  --color-success: 21 128 61;
+  --color-warning: 180 83 9;
+  --color-danger: 180 35 24;
+}
+
 @layer base {
-  body {
-    @apply font-raleway text-neutral-dark bg-neutral-light;
+  html {
+    color-scheme: light;
   }
-  
+
+  body {
+    @apply min-h-screen bg-canvas font-sans text-ink antialiased;
+  }
+
   h1, h2, h3, h4, h5, h6 {
-    @apply font-cormorant;
+    @apply font-display font-extrabold tracking-tight;
+  }
+
+  :where(button, a, input, select, textarea):focus-visible {
+    @apply outline-none ring-2 ring-secondary ring-offset-2 ring-offset-canvas;
+  }
+}
+
+@layer components {
+  .ui-card {
+    @apply rounded-xl border border-line bg-surface shadow-card;
+  }
+
+  .ui-btn,
+  .ui-btn-primary,
+  .ui-btn-secondary,
+  .ui-btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .ui-btn-primary {
+    @apply bg-secondary text-white hover:bg-primary;
+  }
+
+  .ui-btn-secondary {
+    @apply border border-line bg-surface text-ink hover:bg-canvas;
+  }
+
+  .ui-btn-ghost {
+    @apply text-muted hover:bg-canvas hover:text-ink;
+  }
+
+  .ui-input {
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20;
+  }
+
+  .ui-label {
+    @apply mb-1.5 block text-sm font-semibold text-ink;
+  }
+
+  .ui-eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-muted;
+  }
+
+  .ui-badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold;
   }
 }
