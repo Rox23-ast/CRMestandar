@@ -1,7 +1,7 @@
 # Use official Node.js image as the base.
 # Pinned to the October 2026 security release (fixes CVE-2026-111497 and the
 # rest of the Node.js security advisories published on 2026-10-21).
-FROM node:22.23.4-alpine AS builder
+FROM node:26.13.0-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -28,7 +28,7 @@ RUN npm run build
 # --- Frontend Build ---
 # Pinned to the same patched runtime: Node 20 reached end-of-life in April 2026
 # and no longer receives security fixes.
-FROM node:22.23.4-alpine AS frontend-builder
+FROM node:26.13.0-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -41,7 +41,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # --- Production Image ---
-FROM node:22.23.4-alpine AS production
+FROM node:26.13.0-alpine AS production
 
 WORKDIR /app
 
